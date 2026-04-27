@@ -1252,9 +1252,11 @@ export async function runBridgeServerStdio(
   const { JobRegistry } = await import('../jobs/registry.js');
   const { JobRunner } = await import('../jobs/runner.js');
 
+  // Use $HOME as the base — process.cwd() is '/' when Claude Desktop
+  // spawns the bridge process with no working directory set.
   const memoryDir =
     process.env['OMCP_MEMORY_DIR'] ??
-    `${process.cwd()}/.memory/jobs`;
+    `${process.env['HOME'] ?? process.cwd()}/.ollama-mcp-bridge/jobs`;
   const jobStore = new JobStore({ baseDir: memoryDir });
   const jobRegistry = new JobRegistry(jobStore);
   const orphanReport = await jobRegistry.initialize();
