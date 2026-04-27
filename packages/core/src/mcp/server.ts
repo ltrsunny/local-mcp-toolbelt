@@ -803,6 +803,158 @@ export function buildBridgeServer(
       'transform',
     ] as const;
 
+    // ── wait_for_job (RFC 6202 long-poll) ─────────────────────────────────
+    server.registerTool(
+      'wait_for_job',
+      {
+        title: 'Long-poll for async job completion',
+        description:
+          'Block up to max_wait_ms (default and server-cap 45 s, OMCP_WAIT_CAP_MS overrides up to 50 s) for an enqueued job to finish. Returns immediately when the job becomes done/failed. If the cap is reached, returns status: running so the caller can call again. Cap is below the 60 s MCP wall to leave margin for transport round-trip + event-loop lag under heavy Ollama load. ' +
+          'Client-disconnect resilience: if the calling MCP client aborts mid-wait, the underlying job continues — re-attach via another wait_for_job(same_id) or read_job_result.',
+        inputSchema: {
+          job_id: z.string().min(1).describe('The job_id returned from enqueue-job.'),
+          max_wait_ms: z.number().int().min(100).max(50000).optional().describe(
+            'Max ms to block. Default 45000. Server caps at 45 000 (or OMCP_WAIT_CAP_MS up to 50 000).',
+          ),
+        },
+      },
+      async (
+        { job_id, max_wait_ms }: { job_id: string; max_wait_ms?: number },
+        extra: ToolExtra,
+      ) => {
+        const cap = Math.min(parseEnvInt('OMCP_WAIT_CAP_MS') ?? 45000, 50000);
+        const wait = Math.min(max_wait_ms ?? cap, cap);
+
+        const formatResponse = (
+          status: 'running' | 'done' | 'failed' | 'unknown',
+          extras: Record<string, unknown> = {},
+        ): { content: Array<{ type: 'text'; text: string }> } => ({
+          content: [
+            { type: 'text' as const, text: JSON.stringify({ status, ...extras }, null, 2) },
+          ],
+        });
+
+        const meta = await jobRegistry.getMeta(job_id);
+        if (!meta) return formatResponse('unknown', { reason: 'never_existed' });
+
+        if (meta.status === 'done') {
+          return formatResponse('done', {
+            result_path: jobRegistry.store.resultPath(meta.job_id),
+            ...(meta.footer !== undefined ? { footer: meta.footer } : {}),
+          });
+        }
+        if (meta.status === 'failed') {
+          return formatResponse('failed', { error: meta.error ?? 'unknown error' });
+        }
+
+        // Still queued/running — long-poll up to `wait` ms or until update.
+        const finalMeta = await new Promise<typeof meta>((resolve) => {
+          let timer: NodeJS.Timeout | undefined;
+          const unsub = jobRegistry.onUpdate(job_id, (e) => {
+            if (e.status === 'done' || e.status === 'failed') {
+              if (timer) clearTimeout(timer);
+              unsub();
+              cleanup();
+              resolve(e.meta);
+            }
+          });
+          const onAbort = (): void => {
+            if (timer) clearTimeout(timer);
+            unsub();
+            cleanup();
+            // On abort, return current state so the response shape stays valid.
+            // The job itself continues running; the caller can re-attach later.
+            void jobRegistry.getMeta(job_id).then((m) => resolve(m ?? meta));
+          };
+          const cleanup = (): void => {
+            extra.signal?.removeEventListener('abort', onAbort);
+          };
+          extra.signal?.addEventListener('abort', onAbort);
+          timer = setTimeout(() => {
+            unsub();
+            cleanup();
+            void jobRegistry.getMeta(job_id).then((m) => resolve(m ?? meta));
+          }, wait);
+        });
+
+        if (finalMeta.status === 'done') {
+          return formatResponse('done', {
+            result_path: jobRegistry.store.resultPath(finalMeta.job_id),
+            ...(finalMeta.footer !== undefined ? { footer: finalMeta.footer } : {}),
+          });
+        }
+        if (finalMeta.status === 'failed') {
+          return formatResponse('failed', { error: finalMeta.error ?? 'unknown error' });
+        }
+        // Still running after the wait window — caller should call again.
+        return formatResponse('running', {
+          ...(finalMeta.progress ? { progress: finalMeta.progress } : {}),
+        });
+      },
+    );
+
+    // ── read_job_result ───────────────────────────────────────────────────
+    server.registerTool(
+      'read_job_result',
+      {
+        title: 'Read the persisted result of a completed async job',
+        description:
+          'Returns the .md result body for a job whose status is done. The body includes the trailing footer line. Returns isError: true with reason if the job is unknown, expired, or not yet done. Result files persist in .memory/jobs/ for ttl_days (default 7) after enqueue.',
+        inputSchema: {
+          job_id: z.string().min(1).describe('The job_id returned from enqueue-job.'),
+        },
+      },
+      async ({ job_id }: { job_id: string }) => {
+        const meta = await jobRegistry.getMeta(job_id);
+        if (!meta) {
+          return {
+            isError: true as const,
+            content: [
+              {
+                type: 'text' as const,
+                text: `Job ${job_id} not found (never existed or expired).`,
+              },
+            ],
+          };
+        }
+        if (meta.status === 'failed') {
+          return {
+            isError: true as const,
+            content: [
+              {
+                type: 'text' as const,
+                text: `Job ${job_id} failed: ${meta.error ?? 'unknown error'}`,
+              },
+            ],
+          };
+        }
+        if (meta.status !== 'done') {
+          return {
+            isError: true as const,
+            content: [
+              {
+                type: 'text' as const,
+                text: `Job ${job_id} not done yet (status: ${meta.status}). Use wait_for_job to wait for completion.`,
+              },
+            ],
+          };
+        }
+        const body = await jobRegistry.store.readResult(job_id);
+        if (body === null) {
+          return {
+            isError: true as const,
+            content: [
+              {
+                type: 'text' as const,
+                text: `Job ${job_id} reports done but result file is missing (.md not found).`,
+              },
+            ],
+          };
+        }
+        return { content: [{ type: 'text' as const, text: body }] };
+      },
+    );
+
     server.registerTool(
       'enqueue-job',
       {
