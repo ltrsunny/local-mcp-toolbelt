@@ -1,59 +1,101 @@
 # ollama-mcp-bridge
 
 Universal MCP server that bridges any MCP client (Claude Desktop, Cursor, Cline,
-Zed, …) to a local [Ollama](https://ollama.com) instance. Lets the assistant
-delegate lightweight tasks — summarising, drafting, classifying, extracting,
-transforming — to a local model so the frontier model's token budget is
-preserved for reasoning that actually benefits from it.
+Zed, …) to a local [Ollama](https://ollama.com) instance. Lets the frontier
+assistant delegate lightweight tasks to a small local model — summarising,
+classifying, extracting structured data, diffing commits — so its token budget
+is preserved for reasoning that actually requires frontier capability.
 
-**Status: pre-alpha.** Still scaffolding. The CLI commands below work today;
-the MCP server and task tools are being built iteratively.
+Data stays on your machine. Works offline once models are downloaded.
 
-## Install
+## Tools (v0.3.0)
 
-```bash
-npm install -g ollama-mcp-bridge
+### Delegation tools (synchronous)
+
+| Tool | Tier | Use case |
+|---|---|---|
+| `summarize` | B (qwen3:4b) | Short text ≤ ~2 K words |
+| `summarize-long` | C (qwen2.5:7b, num_ctx=32 K) | Up to ~25 K words |
+| `summarize-long-chunked` | C | Any length — map-reduce; use for > 25 K words |
+| `classify` | B | Grammar-constrained label from a list |
+| `extract` | B | Grammar-constrained JSON from a user-supplied schema |
+| `transform` | B | Free-form rewrite / translation |
+| `diff-semantic-index` | B | `git diff` → typed JSON (change_type, files, decisions, risks) |
+
+All tools accept `source_uri: "file:///..." | "https://..."` to read source
+from disk or the web instead of passing inline `text`. This is the only path
+that actually saves frontier tokens (inline text is already in your context).
+
+### Async-job tools (v0.3.0)
+
+Use these when a synchronous tool call would hit Claude Code's ~60 s MCP wall:
+
+| Tool | Purpose |
+|---|---|
+| `enqueue-job` | Submit a tool call as a background job; get a `job_id` immediately |
+| `wait_for_job` | Long-poll (cap 45 s) until the job finishes; re-call if still running |
+| `read_job_result` | Fetch the persisted result body for a done job |
+
+Jobs are stored in `.memory/jobs/` and persist across bridge restarts. Default
+TTL 7 days. Identical `(tool_name, args)` while a job is inflight returns the
+existing `job_id` (dedup).
+
+## Setup (Claude Desktop / Claude Code)
+
+```jsonc
+// ~/Library/Application Support/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "ollama-bridge": {
+      "command": "node",
+      "args": ["/path/to/packages/core/dist/bin/cli.js", "serve"]
+    }
+  }
+}
 ```
 
-(Not yet published. Clone the monorepo and run from source for now.)
+Required Ollama models:
+```bash
+ollama pull qwen3:4b      # Tier B — all synchronous tools + diff-semantic-index
+ollama pull qwen2.5:7b    # Tier C — summarize-long, summarize-long-chunked
+```
 
 ## CLI
 
-The CLI is useful for inspecting the bridge's view of your machine and the
-Ollama catalog, and for running the MCP server directly for debugging.
+```bash
+ollama-mcp hardware          # hardware info (GPU, RAM, detected limits)
+ollama-mcp models            # Ollama daemon status + installed models
+ollama-mcp config            # effective bridge config (tiers + routing)
+ollama-mcp serve             # run the MCP bridge server over stdio
+```
+
+## Slash commands (`.claude/commands/`)
+
+After cloning the repo, `.claude/commands/draft-from-diff.md` is available as
+`/draft-from-diff` in Claude Code. It:
+1. Captures the staged diff (falls back to unstaged).
+2. Saves to `/tmp/omcp-diff-<ts>.txt` and calls `diff-semantic-index` via `source_uri`.
+3. Composes a conventional-commit message from the returned JSON.
+
+## Environment variables
+
+| Variable | Default | Effect |
+|---|---|---|
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama daemon address |
+| `OMCP_MEMORY_DIR` | `$CWD/.memory/jobs` | Job persistence directory |
+| `OMCP_JOB_CONCURRENCY` | `1` | Parallel job limit (Ollama serializes on Metal) |
+| `OMCP_WAIT_CAP_MS` | `45000` | Maximum `wait_for_job` poll window (≤ 50 000) |
+| `OMCP_CHUNK_SIZE` | `2000` | Token target per chunk (chunked summarizer) |
+| `OMCP_CHUNK_OVERLAP` | `200` | Overlap between adjacent chunks |
+| `OMCP_CHUNK_CONCURRENCY` | `2` | MAP fan-out cap |
+
+## Development
 
 ```bash
-# What the bridge knows about the local machine
-ollama-mcp hardware
-
-# Live catalog from ollamadb.dev (community-maintained index of ollama.com/library)
-ollama-mcp catalog
-
-# Full raw response
-ollama-mcp catalog --raw
+npm test                       # 134 unit tests (no Ollama required)
+node tests/smoke-bridge.mjs    # end-to-end smoke (needs qwen3:4b + qwen2.5:7b)
+npm run build                  # tsc → dist/
 ```
-
-Run from source during development:
-
-```bash
-# inside packages/core
-npm run dev -- hardware
-npm run dev -- catalog
-```
-
-## Use as a library
-
-```ts
-import { detectHardware, fetchCatalog } from 'ollama-mcp-bridge';
-
-const hw = detectHardware();
-const catalog = await fetchCatalog({ limit: 200 });
-```
-
-## Use with MCP clients
-
-(Instructions for Claude Desktop, Cursor, Cline, Zed, etc. will be added once
-the MCP server is wired up.)
 
 ## License
 

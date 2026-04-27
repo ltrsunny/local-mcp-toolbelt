@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] — 2026-04-27
+
+### Theme
+
+**"Async jobs + diff semantic index"** — breaks through the 60-second MCP wall
+by adding a persistent Memory Bank and three async-job tools, and adds a
+`diff-semantic-index` tool that distils a `git diff` into a structured JSON
+summary for commit-message drafting and CI annotation.
+
+### Added
+
+- **Memory Bank** — file-backed job store at `.memory/jobs/<id>.{json,md}`.
+  Jobs persist across bridge restarts. Default TTL 7 days (configurable via
+  `ttl_days`). GC runs at server startup and marks orphaned running-jobs
+  (from a previous crash) as failed.
+
+- **`enqueue-job` tool** — submits any whitelisted tool call as a background
+  job. Returns a `job_id` immediately. Idempotent: repeated calls with
+  identical `(tool_name, args)` while the prior job is still queued/running
+  return the existing `job_id`. Whitelist: `summarize`, `summarize-long`,
+  `summarize-long-chunked`, `classify`, `extract`, `transform`,
+  `diff-semantic-index`.
+
+- **`wait_for_job` tool** — long-polls (RFC 6202 style) up to `max_wait_ms`
+  (default/cap 45 s, env `OMCP_WAIT_CAP_MS` up to 50 s) for a job to finish.
+  Returns `{status: done|failed|running|unknown}`. On client-disconnect the
+  underlying job continues; caller can re-attach with the same `job_id`.
+
+- **`read_job_result` tool** — returns the persisted `.md` result body for a
+  `done` job. Returns `isError: true` for unknown, expired, not-yet-done, or
+  failed jobs.
+
+- **`diff-semantic-index` tool** — Tier B (qwen3:4b) grammar-constrained tool
+  that parses a `git diff` into a typed JSON summary:
+  `change_type`, 1-sentence `summary`, per-file `files_touched` (role + lines),
+  `key_decisions`, `risk_callouts`, `test_coverage_hint`.
+  Accepts `diff_text` (≤ ~7 K tokens) or `source_uri` (preferred for large
+  diffs; avoids macOS ARG_MAX). Token-budget guard returns `isError` with a
+  hint when the diff is too large.
+
+- **`.claude/commands/draft-from-diff`** — slash command for Claude Code that
+  captures the staged diff, delegates to `diff-semantic-index` via
+  `source_uri`, and composes a conventional-commit message from the JSON.
+
+- **43 new unit tests** (134 total) and **Smoke T10/T11**.
+
+### Runtime dependencies added
+
+| Package | Version | License |
+|---|---|---|
+| `p-queue` | ^9.2.0 | MIT |
+| `nanoid` | ^5.1.9 | MIT |
+| `parse-diff` | ^0.12.0 | MIT |
+
+---
+
 ## [0.2.0] — 2026-04-25
 
 ### Theme
