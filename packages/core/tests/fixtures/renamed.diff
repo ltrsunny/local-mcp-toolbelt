@@ -1,0 +1,11 @@
+diff --git a/src/foo.ts b/src/bar.ts
+similarity index 95%
+rename from src/foo.ts
+rename to src/bar.ts
+index aaa..bbb 100644
+--- a/src/foo.ts
++++ b/src/bar.ts
+@@ -1,2 +1,2 @@
+-const name = 'foo';
++const name = 'bar';
+ const x = 1;
