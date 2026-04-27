@@ -14,6 +14,7 @@ import { sanitizeSchemaForOllama } from './sanitize.js';
 import { readSource, readSourceOptionsFromEnv } from '../io/sourceReader.js';
 import { backendForTool } from './backend-factory.js';
 import { chunkedSummarize } from '../chunking/map-reduce.js';
+import { parseDiffText, deriveTestCoverageHint, formatParsedDiffForPrompt } from '../diff/parse.js';
 import type { JobRegistry } from '../jobs/registry.js';
 import type { JobRunner } from '../jobs/runner.js';
 import type { ProgressCaptureExtra } from '../jobs/progress-capture.js';
@@ -81,6 +82,55 @@ const TRANSFORM_SYSTEM =
   'Apply the instruction to the text. Return ONLY the transformed text, with ' +
   'no commentary, no preamble, no explanation. Preserve the source language ' +
   'unless the instruction explicitly says otherwise.';
+
+const DIFF_INDEX_SYSTEM =
+  'Analyse the git diff and return JSON matching the schema. Be terse and concrete. ' +
+  'summary: ≤ 20 words, what changed and why. ' +
+  'change_type: best single category (feature/fix/refactor/docs/test/chore/mixed). ' +
+  'files_touched: one entry per file; use the structured parse block provided before the raw diff. ' +
+  'key_decisions: 3–7 architectural or design points visible in the diff; empty array if none. ' +
+  'risk_callouts: breaking API changes, missing migrations, skipped tests; empty array if none. ' +
+  'test_coverage_hint: tests_added/tests_modified/no_test_change/unclear.';
+
+/**
+ * Hardcoded JSON Schema for diff-semantic-index grammar-constrained output.
+ * files_touched[].role uses a free-string (not enum) to avoid GBNF compiler
+ * issues with enum-inside-array-items — values are coerced in the handler.
+ */
+const DIFF_INDEX_OUTPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    change_type: {
+      type: 'string',
+      enum: ['feature', 'fix', 'refactor', 'docs', 'test', 'chore', 'mixed'],
+    },
+    summary: { type: 'string' },
+    files_touched: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          // free-string — coerced to union in the handler
+          role: { type: 'string' },
+          lines_changed: { type: 'integer' },
+          role_in_change: { type: 'string' },
+        },
+        required: ['path', 'role', 'lines_changed'],
+      },
+    },
+    key_decisions: { type: 'array', items: { type: 'string' } },
+    risk_callouts: { type: 'array', items: { type: 'string' } },
+    test_coverage_hint: {
+      type: 'string',
+      enum: ['tests_added', 'tests_modified', 'no_test_change', 'unclear'],
+    },
+  },
+  required: [
+    'change_type', 'summary', 'files_touched',
+    'key_decisions', 'risk_callouts', 'test_coverage_hint',
+  ],
+};
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -787,6 +837,172 @@ export function buildBridgeServer(
     },
   );
 
+  // ── diff-semantic-index (v0.3.0 feature #2) ───────────────────────────────
+  registerCapturedTool(
+    'diff-semantic-index',
+    {
+      title: 'Structured semantic index of a git diff',
+      description:
+        'Parse a `git diff` into a typed JSON summary: change_type, 1-sentence summary, ' +
+        'per-file roles and line counts, key architectural decisions, risk callouts, and ' +
+        'a test_coverage_hint. Tier B (qwen3:4b), grammar-constrained output. ' +
+        'TOKEN LIMIT: estimated input tokens > 7 000 returns isError with a hint to use ' +
+        'enqueue-job + summarize-long-chunked to reduce the diff first. ' +
+        'USAGE: pass diff_text for small diffs or source_uri=file:///tmp/my.diff for large ones ' +
+        '(ARG_MAX on macOS is ~256 KB — always prefer source_uri for CI diffs).',
+      inputSchema: {
+        diff_text: z.string().optional().describe(
+          'Raw git diff output. Required if source_uri is not provided. ' +
+          'Caller is responsible for not exceeding ~28 KB (~7 K tokens).',
+        ),
+        source_uri: z.string().optional().describe(
+          'file:// or http(s):// URI to read the diff from. Required if diff_text is not provided. ' +
+          'Preferred for diffs > 4 KB to avoid ARG_MAX limits and save frontier tokens.',
+        ),
+      },
+    },
+    async (
+      { diff_text, source_uri }: { diff_text?: string; source_uri?: string },
+      extra: ToolExtra,
+    ) => {
+      const src = await resolveSource(diff_text, source_uri);
+      if (!src.ok) {
+        return { isError: true as const, content: [{ type: 'text' as const, text: src.message }] };
+      }
+
+      const diffText = src.text;
+
+      // Token-budget guard: Tier B has num_ctx=8192; leave ~2K for output.
+      const estimatedTokens = Math.ceil(diffText.length / 4);
+      if (estimatedTokens > 7000) {
+        return {
+          isError: true as const,
+          content: [{
+            type: 'text' as const,
+            text:
+              `Diff is too large for Tier B context (~${estimatedTokens} estimated tokens, limit 7 000). ` +
+              'Consider: (1) use --staged to index only staged changes, or (2) use enqueue-job with ' +
+              'summarize-long-chunked to compress the diff text first, then call diff-semantic-index ' +
+              'on the summary.',
+          }],
+        };
+      }
+
+      const tierKey = tierForTool(config, 'diff-semantic-index');
+      const tierCfg = config.tiers[tierKey];
+      const t0 = Date.now();
+      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierCfg.model})`);
+
+      try {
+        // Pre-parse the diff so the model gets a structured index + raw diff.
+        const parsed = parseDiffText(diffText);
+        const parsedSummary = formatParsedDiffForPrompt(parsed);
+        const hintFromParse = deriveTestCoverageHint(parsed);
+
+        let safeText = diffText;
+        let systemPrompt = DIFF_INDEX_SYSTEM;
+        let defenderMeta: Parameters<typeof buildMeta>[0]['defender'];
+        if (defense) {
+          const dResult = await defense.defend(diffText, 'diff-semantic-index');
+          defenderMeta = { tier: dResult.defenderTier, score: dResult.score, risk: dResult.risk };
+          await sendProgress(extra, 1, 3, `defender passed (risk=${dResult.risk ?? 'low'})`);
+          if (!dResult.allowed) {
+            return {
+              isError: true as const,
+              content: [{ type: 'text' as const, text: `Prompt injection detected (risk=${dResult.risk}). Request blocked.` }],
+              _meta: buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
+            };
+          }
+          safeText = dResult.wrappedText;
+          systemPrompt = dResult.systemPrefix + '\n\n' + DIFF_INDEX_SYSTEM;
+        }
+
+        await sendProgress(extra, 2, 3, 'generating…');
+        const sanitized = sanitizeSchemaForOllama(DIFF_INDEX_OUTPUT_SCHEMA);
+        if (!sanitized.ok) {
+          return {
+            isError: true as const,
+            content: [{ type: 'text' as const, text: `Internal schema error: ${sanitized.reason}` }],
+          };
+        }
+        const backend = backendForTool(client, config, 'diff-semantic-index');
+        const result = await backend.chat(
+          {
+            system: systemPrompt,
+            user:
+              '=== STRUCTURED DIFF PARSE ===\n' +
+              parsedSummary +
+              '\n\n=== RAW DIFF ===\n' +
+              safeText,
+            temperature: 0.1,
+            maxInputTokens: tierCfg.numCtx ?? 8192,
+            format: sanitized.schema,
+            maxOutputTokens: 1024,
+          },
+          extra.signal,
+        );
+        const latencyMs = Date.now() - t0;
+
+        // Parse and coerce LLM JSON output.
+        let output: Record<string, unknown>;
+        try {
+          output = JSON.parse(result.text) as Record<string, unknown>;
+        } catch {
+          return {
+            isError: true as const,
+            content: [{ type: 'text' as const, text: `Model returned invalid JSON: ${result.text.slice(0, 200)}` }],
+          };
+        }
+
+        // Coerce files_touched[].role to valid enum (GBNF may produce free strings).
+        const VALID_ROLES = new Set(['added', 'modified', 'deleted', 'renamed']);
+        if (Array.isArray(output['files_touched'])) {
+          for (const f of output['files_touched'] as Array<Record<string, unknown>>) {
+            if (typeof f['role'] === 'string' && !VALID_ROLES.has(f['role'])) {
+              f['role'] = 'modified'; // safe fallback
+            }
+          }
+        }
+
+        // Prefer the parse-derived hint if the model returned 'unclear'.
+        if (output['test_coverage_hint'] === 'unclear') {
+          output['test_coverage_hint'] = hintFromParse;
+        }
+
+        const VALID_CHANGE_TYPES = new Set(['feature', 'fix', 'refactor', 'docs', 'test', 'chore', 'mixed']);
+        if (typeof output['change_type'] === 'string' && !VALID_CHANGE_TYPES.has(output['change_type'])) {
+          output['change_type'] = 'mixed';
+        }
+
+        const savedInputTokensEstimate = src.bytes !== undefined
+          ? Math.max(0, Math.floor(src.bytes / 4) - result.completionTokens)
+          : undefined;
+        const footerText = buildFooter({
+          model: tierCfg.model, tier: tierKey, latencyMs,
+          promptTokens: result.promptTokens, completionTokens: result.completionTokens,
+          savedTokensEstimate: savedInputTokensEstimate,
+        });
+        const meta = buildMeta({
+          model: tierCfg.model, tier: tierKey, latencyMs, result,
+          defender: defenderMeta, savedInputTokensEstimate,
+        });
+        if (source_uri) {
+          meta['dev.ollamamcpbridge/source_uri'] = source_uri;
+          meta['dev.ollamamcpbridge/source_bytes'] = src.bytes;
+        }
+        return {
+          content: [
+            { type: 'text' as const, text: JSON.stringify(output, null, 2) },
+            ...(footerText ? [{ type: 'text' as const, text: footerText }] : []),
+          ],
+          _meta: meta,
+        };
+      } catch (err) {
+        return toolCallError(err);
+      }
+    },
+  );
+
   // ── v0.3.0 async-job tools ─────────────────────────────────────────────────
   // Registered only when both jobRegistry AND jobRunner are provided. Tests
   // that don't need async machinery omit them and the v0.2.0 surface stays
@@ -801,6 +1017,7 @@ export function buildBridgeServer(
       'classify',
       'extract',
       'transform',
+      'diff-semantic-index',
     ] as const;
 
     // ── wait_for_job (RFC 6202 long-poll) ─────────────────────────────────
