@@ -457,6 +457,71 @@ try {
     console.log(`  ${DIM}${ms}ms — footer: ${lastItem9?.text}${RESET}`);
   }
 
+  // ── T10: async job round-trip (enqueue → wait_for_job → read_job_result) ──
+  section('T10 — async job round-trip (enqueue / wait / read)');
+  {
+    const { res: enqRes, ms: enqMs } = await callTool('enqueue-job', {
+      tool_name: 'summarize',
+      args: { text: SHORT_TEXT, style: 'one sentence' },
+    });
+    check('enqueue: no error', !enqRes.result?.isError, firstText(enqRes));
+    const enqBody = parsedJson(enqRes);
+    check('enqueue: has job_id', typeof enqBody?.job_id === 'string', enqBody);
+    check('enqueue: job_id is 10 chars', /^[A-Za-z0-9_-]{10}$/.test(enqBody?.job_id ?? ''), enqBody?.job_id);
+    console.log(`  ${DIM}${enqMs}ms — job_id: ${enqBody?.job_id}${RESET}`);
+
+    // Long-poll until done (bridge runs the job in background; should finish well under 45 s).
+    const { res: waitRes, ms: waitMs } = await callTool('wait_for_job', {
+      job_id: enqBody?.job_id,
+      max_wait_ms: 45000,
+    }, 60_000);
+    check('wait_for_job: no error', !waitRes.result?.isError, firstText(waitRes));
+    const waitBody = parsedJson(waitRes);
+    check('wait_for_job: status is done', waitBody?.status === 'done', waitBody?.status);
+    check('wait_for_job: has result_path', typeof waitBody?.result_path === 'string', waitBody?.result_path);
+    console.log(`  ${DIM}${waitMs}ms — status: ${waitBody?.status}${RESET}`);
+
+    // Read the persisted result.
+    const { res: readRes, ms: readMs } = await callTool('read_job_result', {
+      job_id: enqBody?.job_id,
+    });
+    check('read_job_result: no error', !readRes.result?.isError, firstText(readRes));
+    const readText = firstText(readRes);
+    check('read_job_result: non-empty body', typeof readText === 'string' && readText.length > 10, readText?.slice(0, 100));
+    console.log(`  ${DIM}${readMs}ms — body length: ${readText?.length}${RESET}`);
+  }
+
+  // ── T11: diff-semantic-index ─────────────────────────────────────────────
+  section('T11 — diff-semantic-index (Tier B, grammar-constrained)');
+  {
+    const fixturePath = path.join(CORE_ROOT, 'tests', 'fixtures', 'sample.diff');
+    const { res, ms } = await callTool('diff-semantic-index', {
+      source_uri: `file://${fixturePath}`,
+    });
+    check('diff-index: no error', !res.result?.isError, firstText(res));
+    const body = parsedJson(res);
+    check('diff-index: has change_type', typeof body?.change_type === 'string', body?.change_type);
+    const VALID_TYPES = new Set(['feature', 'fix', 'refactor', 'docs', 'test', 'chore', 'mixed']);
+    check('diff-index: change_type is valid enum', VALID_TYPES.has(body?.change_type), body?.change_type);
+    check('diff-index: has summary string', typeof body?.summary === 'string' && body.summary.length > 0, body?.summary);
+    check('diff-index: files_touched is array', Array.isArray(body?.files_touched), body?.files_touched);
+    check('diff-index: files_touched has 3 entries', body?.files_touched?.length === 3, body?.files_touched?.length);
+    check('diff-index: key_decisions is array', Array.isArray(body?.key_decisions), body?.key_decisions);
+    check('diff-index: risk_callouts is array', Array.isArray(body?.risk_callouts), body?.risk_callouts);
+    const VALID_HINTS = new Set(['tests_added', 'tests_modified', 'no_test_change', 'unclear']);
+    check('diff-index: test_coverage_hint is valid', VALID_HINTS.has(body?.test_coverage_hint), body?.test_coverage_hint);
+    console.log(`  ${DIM}${ms}ms — change_type: ${body?.change_type}, hint: ${body?.test_coverage_hint}${RESET}`);
+
+    // Footer from Tier B
+    const content11 = res.result?.content ?? [];
+    const lastItem11 = content11[content11.length - 1];
+    check(
+      'diff-index: footer present',
+      typeof lastItem11?.text === 'string' && lastItem11.text.startsWith('[bridge:'),
+      lastItem11?.text?.slice(0, 120),
+    );
+  }
+
 } catch (err) {
   console.error(`\n${RED}FATAL:${RESET}`, err);
   process.exitCode = 1;
