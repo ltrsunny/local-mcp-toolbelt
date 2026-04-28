@@ -111,9 +111,15 @@ export class JobRegistry extends EventEmitter {
         enqueued_at: new Date().toISOString(),
         ttl_days,
       };
+      // Persist FIRST, then mutate in-memory state. If writeMetadata throws
+      // (full disk, ENOSPC, EIO), in-memory state stays clean — caller sees
+      // the error and can retry. Reversing the order would leave a "ghost"
+      // job in `active` / `inflightHashes` that has no on-disk record, so
+      // `findOrphaned()` on next restart wouldn't reconcile it and dedup
+      // would point at a non-existent job.
+      await this.store.writeMetadata(meta);
       this.active.set(job_id, meta);
       this.inflightHashes.set(h, job_id);
-      await this.store.writeMetadata(meta);
       this.emit('update', { job_id, status: 'queued', meta });
       return meta;
     }
@@ -127,8 +133,8 @@ export class JobRegistry extends EventEmitter {
       enqueued_at: new Date().toISOString(),
       ttl_days,
     };
-    this.active.set(job_id, meta);
     await this.store.writeMetadata(meta);
+    this.active.set(job_id, meta);
     this.emit('update', { job_id, status: 'queued', meta });
     return meta;
   }

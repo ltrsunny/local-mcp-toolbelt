@@ -123,14 +123,16 @@ describe('chunkedSummarize — recursive reduce', () => {
   });
 
   it('returns partial=true when recursion hits MAX_RECURSION_DEPTH', async () => {
-    // Need an extreme case where even after MAX_RECURSION_DEPTH passes, the
-    // input still doesn't fit a single bucket. Trick: make the FAKE summary
-    // outputs LONG so each reduce pass produces output that's still bigger
-    // than the bucket. We set defaultResult to "X".repeat(15000) (~3.7 K
-    // tokens proxy) which always exceeds the 3 K bucket on its own.
-    const longResult = 'X'.repeat(15_000); // > REDUCE_BUCKET_TOKENS proxy
+    // Need an extreme case where every recursion pass produces N buckets
+    // whose summaries are still N entries — i.e. reduce never compresses.
+    // Trick: make every fake summary ~2000 tokens (chars/4 proxy with
+    // 'X'.repeat(8000)). That's just under the 2500-token bucket budget
+    // so packIntoBuckets does NOT throw the oversize guard, but it's
+    // > budget/2 so each bucket holds exactly 1 entry. Aggregate input
+    // therefore never shrinks across recursion → MAX_RECURSION_DEPTH.
+    const longResult = 'X'.repeat(8_000); // ~2000 tokens (chars/4 proxy)
     const backend = new FakeBackend({
-      defaultResult: { text: longResult, promptTokens: 200, completionTokens: 800 },
+      defaultResult: { text: longResult, promptTokens: 200, completionTokens: 500 },
     });
 
     const source = 'sentence. '.repeat(800); // ~10 chunks at chunkSize=200
@@ -145,6 +147,31 @@ describe('chunkedSummarize — recursive reduce', () => {
 
     expect(result.partial).toBe(true);
     expect(result.reduceDepth).toBe(MAX_RECURSION_DEPTH);
+  });
+
+  it('throws clear error when a single entry exceeds the bucket budget', async () => {
+    // Companion to the partial=true test: prove the new oversize guard
+    // surfaces a clear, actionable message rather than a silent
+    // context-window failure inside the next reduce call. This protects
+    // against future regressions where MAP outputs drift past
+    // MAP_OUTPUT_BUDGET and we'd otherwise discover it as a confusing
+    // backend error during REDUCE.
+    const oversize = 'X'.repeat(15_000); // ~3753 tokens > REDUCE_BUCKET-overhead=2500
+    const backend = new FakeBackend({
+      defaultResult: { text: oversize, promptTokens: 200, completionTokens: 800 },
+    });
+
+    const source = 'sentence. '.repeat(800);
+    await expect(
+      chunkedSummarize({
+        source,
+        backend,
+        maxInputTokens: 500,
+        chunkSize: 200,
+        chunkOverlap: 20,
+        signal: freshSignal(),
+      }),
+    ).rejects.toThrow(/exceeding the per-bucket budget/);
   });
 });
 

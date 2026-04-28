@@ -604,10 +604,16 @@ async function reduceRecursive(
 
 /**
  * Greedy bucket packing: append entries to the current bucket until it
- * would exceed `bucketBudget` tokens, then start a new bucket. An entry
- * larger than the budget gets its own bucket (potentially exceeding
- * `bucketBudget` — caller is expected to surface this case via a higher-
- * level cap; in practice MAP_OUTPUT_BUDGET = 400 ≪ REDUCE_BUCKET_TOKENS).
+ * would exceed `bucketBudget` tokens, then start a new bucket. Throws if
+ * any single entry exceeds `bucketBudget` — that would force an oversized
+ * bucket through to REDUCE, where the backend.chat() call would silently
+ * fail with a context-window error and discard every other bucket's work.
+ *
+ * In practice this guard should never trip: MAP_OUTPUT_BUDGET = 400 ≪
+ * REDUCE_BUCKET_TOKENS = 3000, so MAP-phase outputs always fit. It exists
+ * so that an upstream regression (a misconfigured MAP prompt that ignores
+ * its budget, an unusually long tool output, …) surfaces as a clear error
+ * rather than a confusing context-window failure.
  *
  * Token-counting for all entries runs in parallel via Promise.all before
  * the synchronous greedy pass — for 100 chunks this saves ~99 × per-call
@@ -619,6 +625,20 @@ async function packIntoBuckets(
   backend: LlmBackend,
 ): Promise<string[]> {
   const tokenCounts = await Promise.all(entries.map((e) => backend.countTokens(e)));
+  // Guard: an oversized single entry must not make it into a bucket — see
+  // the docstring above for why a silent oversize would be worse than this
+  // error.
+  for (let i = 0; i < entries.length; i++) {
+    const t = tokenCounts[i]!;
+    if (t > bucketBudget) {
+      throw new Error(
+        `Cannot pack entry ${i + 1}/${entries.length}: it is ${t} tokens, ` +
+          `exceeding the per-bucket budget of ${bucketBudget}. This usually ` +
+          `means a MAP-phase output drifted past MAP_OUTPUT_BUDGET — lower ` +
+          `OMCP_CHUNK_SIZE or inspect the MAP prompt for that chunk.`,
+      );
+    }
+  }
   const buckets: string[] = [];
   let current: string[] = [];
   let currentTokens = 0;

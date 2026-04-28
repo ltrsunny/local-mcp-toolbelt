@@ -47,11 +47,24 @@ export function createProgressCapture(
     sendNotification: async (notification): Promise<void> => {
       if (notification?.method === 'notifications/progress') {
         const params = notification.params ?? {};
-        await registry.setProgress(job_id, {
-          current: typeof params.progress === 'number' ? params.progress : 0,
-          total: typeof params.total === 'number' ? params.total : 0,
-          message: typeof params.message === 'string' ? params.message : '',
-        });
+        try {
+          await registry.setProgress(job_id, {
+            current: typeof params.progress === 'number' ? params.progress : 0,
+            total: typeof params.total === 'number' ? params.total : 0,
+            message: typeof params.message === 'string' ? params.message : '',
+          });
+        } catch (err) {
+          // Progress reporting must NEVER bubble up — the wrapped tool's job
+          // is to compute a result, not to keep the registry consistent. A
+          // disk write failure inside setProgress (file system full, EIO,
+          // race with TTL gc) would otherwise abort an otherwise-successful
+          // backend.chat() that's already burned tokens. Log to stderr so the
+          // failure is visible in the MCP server log.
+          console.error(
+            `[progress-capture] setProgress failed for job ${job_id}:`,
+            err,
+          );
+        }
       }
       // Other notification kinds are dropped — there's no transport to
       // forward them to in async mode.
