@@ -119,8 +119,25 @@ now:
   GitHub-MCP context (issues, PRs). Free tier 50 premium/month.
   Note: "building a project on GitHub web" = **Copilot Workspace** (browser,
   Issue→PR flow), distinct from CLI.
+- **Nvidia NIM** (`nv_sum`, `nv_pro` shell functions): free OpenAI-compatible
+  inference. `nv_sum` → llama-3.2-3b for fast small tasks; `nv_pro` →
+  deepseek-v4-pro for heavy single-shot analysis. No agentic loop — pipe-in
+  / Q&A only. Use when a task needs frontier-class inference but not
+  multi-step tool use.
 - **The bridge itself** for everything that fits — see "Bridge-usage
   discipline" above.
+
+### Frontier-takeover priority (when Claude quota tightens)
+
+1. **Gemini CLI via `gem` shortcut** — agentic + frontier + generous quota.
+   Use `/handoff-to-gemini` slash command to generate a self-contained
+   handoff doc, then `gem "$(cat /tmp/handoff-*.md | tail -1)"`.
+2. **Proactive delegation**: for sub-tasks that don't need Claude's session
+   context, invoke `gem "..."` from Bash directly — extends overall frontier
+   capacity by spending Gemini's quota instead of Claude's.
+3. **Heavy single-shot reasoning**: `cat large.ts | nv_pro "..."` taps a
+   100B+ Nvidia-hosted model without Claude / Gemini quota.
+4. **Local Ollama** via bridge for any task ≤ qwen3:4b can handle.
 
 ## Files to know
 
