@@ -103,7 +103,7 @@ now:
 
 ## Outside-help cheat sheet
 
-- **Gemini CLI** (`gemini -m gemini-3.1-pro-preview --yolo -p ...`): full
+- **Gemini CLI** (`gemini -m gemini-2.5-pro --yolo -p ...`): full
   ReAct agentic loop — WriteFile, Shell, ReadFile, MCP servers, subagents,
   hooks. `--yolo` auto-approves all actions; `-p` is headless/scriptable.
   Supports `GEMINI.md` for project-level config. Best for: divergent web
