@@ -53,6 +53,23 @@ summary for commit-message drafting and CI annotation.
 
 - **43 new unit tests** (134 total) and **Smoke T10/T11**.
 
+### Fixed
+
+- **`progress-capture.ts`** — `setProgress` is now wrapped in try/catch so a
+  disk-write failure (EIO, ENOSPC) during progress reporting cannot abort an
+  already-running `backend.chat()` call that has already burned tokens.
+- **`registry.ts`** — `writeMetadata` is now persisted *before* mutating
+  in-memory `active` / `inflightHashes`. Reversing this order would have left
+  ghost jobs (in memory but no on-disk record) when a write failed mid-enqueue.
+- **`map-reduce.ts`** `packIntoBuckets()` — now throws an actionable error when
+  any single entry exceeds the per-bucket token budget, instead of silently
+  passing it to REDUCE where the backend would fail with a confusing
+  context-window error.
+- **Default `OMCP_MEMORY_DIR`** — now `$HOME/.ollama-mcp-bridge/jobs` instead
+  of `$CWD/.memory/jobs`. Fixes the bridge crashing on
+  `ENOENT mkdir '//.memory'` when MCP clients (e.g., Claude Desktop) spawn the
+  bridge with an empty cwd.
+
 ### Runtime dependencies added
 
 | Package | Version | License |
