@@ -103,11 +103,13 @@ now:
 
 ## Outside-help cheat sheet
 
-- **Gemini CLI** (`gemini -m gemini-2.5-pro --yolo -p ...`): full
-  ReAct agentic loop — WriteFile, Shell, ReadFile, MCP servers, subagents,
-  hooks. `--yolo` auto-approves all actions; `-p` is headless/scriptable.
-  Supports `GEMINI.md` for project-level config. Best for: divergent web
-  research, adversarial scope-memo reviews, multi-source PA surveys, delegated
+- **Gemini CLI** (`gem "..."` shell function): full ReAct agentic loop —
+  WriteFile, Shell, ReadFile, MCP servers, subagents, hooks. `--yolo`
+  auto-approves all actions; `-p` is headless/scriptable. Default model:
+  `gemini-3.1-pro-preview` (best available); auto-falls back to
+  `gemini-2.5-pro` → `gemini-2.5-flash` on capacity errors. Override:
+  `GEM_MODEL=gemini-2.5-flash gem "..."`. Best for: divergent web research,
+  adversarial scope-memo reviews, multi-source PA surveys, delegated
   multi-file tasks. Pro subscription, generous quota.
 - **Copilot CLI** (`copilot -p ... --effort xhigh --allow-all-tools`): the
   standalone `@github/copilot` npm binary (GA 2026-02-25) — **not** the
