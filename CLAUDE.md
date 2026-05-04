@@ -127,17 +127,25 @@ now:
 - **The bridge itself** for everything that fits — see "Bridge-usage
   discipline" above.
 
-### Frontier-takeover priority (when Claude quota tightens)
+### Tool orchestration: portfolio, not fallback
 
-1. **Gemini CLI via `gem` shortcut** — agentic + frontier + generous quota.
-   Use `/handoff-to-gemini` slash command to generate a self-contained
-   handoff doc, then `gem "$(cat /tmp/handoff-*.md | tail -1)"`.
-2. **Proactive delegation**: for sub-tasks that don't need Claude's session
-   context, invoke `gem "..."` from Bash directly — extends overall frontier
-   capacity by spending Gemini's quota instead of Claude's.
-3. **Heavy single-shot reasoning**: `cat large.ts | nv_pro "..."` taps a
-   100B+ Nvidia-hosted model without Claude / Gemini quota.
-4. **Local Ollama** via bridge for any task ≤ qwen3:4b can handle.
+These tools are configured to run **concurrently and in combination**, not as
+a try-A-then-B chain. Each has a niche; non-trivial tasks fan out to ≥2 of
+them in parallel and Claude synthesizes.
+
+| Tool | Niche |
+|---|---|
+| Bridge (`mcp__ollama-bridge__*`) | Structured `extract` / `classify` / `summarize` / `diff-semantic-index`. Small bounded calls. **Use first** — saves frontier without leaving local. |
+| `gem` (Gemini 2.5 Pro, agentic) | Adversarial review, multi-file refactors, divergent web research. |
+| `copilot` (GitHub-context) | Cross-repo lookups, issue / PR context, GitHub-MCP tasks. 50 premium / month. |
+| `nv_sum` / `nv_pro` (Nvidia NIM) | Offload single-shot reasoning to a non-Claude / non-Gemini quota. |
+| Me (Claude) | Orchestrator + final synthesis + decisions. |
+
+**Anti-pattern**: serial fallback ("`gem` failed, switch to `nv_pro`, switch to bridge"). That's the failure mode of v0.3.0 release in this session.
+**Right pattern**: parallel fan-out → synthesize. Example for a release commit: `diff-semantic-index` + `gem "review the diff for risk"` + Claude composing the message — concurrent, ~one wall-clock step.
+
+Quota emergency (Claude session > 85%): handoff via `/handoff-to-gemini` is the
+**fallback** path — but the portfolio above is the **default**.
 
 ## Files to know
 
