@@ -6,6 +6,7 @@ import {
   type BridgeConfig,
   DEFAULT_CONFIG,
   tierForTool,
+  tierModelLabel,
 } from '../config/tiers.js';
 import { buildMeta } from './meta.js';
 import { buildFooter } from './footer.js';
@@ -291,7 +292,7 @@ export function buildBridgeServer(
       const tierKey = tierForTool(config, 'summarize');
       const tierCfg = config.tiers[tierKey];
       const t0 = Date.now();
-      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierCfg.model})`);
+      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierModelLabel(tierCfg)})`);
       try {
         let safeText = src.text;
         let systemPrompt = SUMMARIZE_SYSTEM;
@@ -304,7 +305,7 @@ export function buildBridgeServer(
             return {
               isError: true as const,
               content: [{ type: 'text' as const, text: `Prompt injection detected (risk=${dResult.risk}). Request blocked.` }],
-              _meta: buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
+              _meta: buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
             };
           }
           safeText = dResult.wrappedText;
@@ -326,8 +327,8 @@ export function buildBridgeServer(
         const savedInputTokensEstimate = src.bytes !== undefined
           ? Math.max(0, Math.floor(src.bytes / 4) - result.completionTokens)
           : undefined;
-        const footerText = buildFooter({ model: tierCfg.model, tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens, savedTokensEstimate: savedInputTokensEstimate });
-        const meta = buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs, result, defender: defenderMeta, savedInputTokensEstimate });
+        const footerText = buildFooter({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens, savedTokensEstimate: savedInputTokensEstimate });
+        const meta = buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, result, defender: defenderMeta, savedInputTokensEstimate });
         if (source_uri) { meta['dev.ollamamcpbridge/source_uri'] = source_uri; meta['dev.ollamamcpbridge/source_bytes'] = src.bytes; }
         return {
           content: [
@@ -376,7 +377,7 @@ export function buildBridgeServer(
       const tierKey = tierForTool(config, 'summarize-long');
       const tierCfg = config.tiers[tierKey];
       const t0 = Date.now();
-      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierCfg.model})`);
+      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierModelLabel(tierCfg)})`);
       try {
         let safeText = src.text;
         let systemPrompt = SUMMARIZE_LONG_SYSTEM;
@@ -389,7 +390,7 @@ export function buildBridgeServer(
             return {
               isError: true as const,
               content: [{ type: 'text' as const, text: `Prompt injection detected (risk=${dResult.risk}). Request blocked.` }],
-              _meta: buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
+              _meta: buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
             };
           }
           safeText = dResult.wrappedText;
@@ -411,8 +412,8 @@ export function buildBridgeServer(
         const savedInputTokensEstimate = src.bytes !== undefined
           ? Math.max(0, Math.floor(src.bytes / 4) - result.completionTokens)
           : undefined;
-        const footerText = buildFooter({ model: tierCfg.model, tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens, savedTokensEstimate: savedInputTokensEstimate });
-        const meta = buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs, result, defender: defenderMeta, savedInputTokensEstimate });
+        const footerText = buildFooter({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens, savedTokensEstimate: savedInputTokensEstimate });
+        const meta = buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, result, defender: defenderMeta, savedInputTokensEstimate });
         if (source_uri) { meta['dev.ollamamcpbridge/source_uri'] = source_uri; meta['dev.ollamamcpbridge/source_bytes'] = src.bytes; }
         return {
           content: [
@@ -461,7 +462,7 @@ export function buildBridgeServer(
       const tierKey = tierForTool(config, 'summarize-long-chunked');
       const tierCfg = config.tiers[tierKey];
       const t0 = Date.now();
-      await sendProgress(extra, 0, 5, `routing to Tier ${tierKey} (${tierCfg.model})`);
+      await sendProgress(extra, 0, 5, `routing to Tier ${tierKey} (${tierModelLabel(tierCfg)})`);
       try {
         let defenderMeta: Parameters<typeof buildMeta>[0]['defender'];
         if (defense) {
@@ -472,7 +473,7 @@ export function buildBridgeServer(
             return {
               isError: true as const,
               content: [{ type: 'text' as const, text: `Prompt injection detected (risk=${dResult.risk}). Request blocked.` }],
-              _meta: buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
+              _meta: buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
             };
           }
           // Defender's allowed-vs-blocked decision is honored. We do NOT
@@ -511,7 +512,7 @@ export function buildBridgeServer(
           ? Math.max(0, Math.floor(src.bytes / 4) - result.completionTokens)
           : undefined;
         const footerText = buildFooter({
-          model: tierCfg.model,
+          model: tierModelLabel(tierCfg),
           tier: tierKey,
           latencyMs,
           promptTokens: result.promptTokens,
@@ -521,7 +522,7 @@ export function buildBridgeServer(
           partial: result.partial,
         });
         const meta = buildMeta({
-          model: tierCfg.model,
+          model: tierModelLabel(tierCfg),
           tier: tierKey,
           latencyMs,
           result: {
@@ -586,7 +587,7 @@ export function buildBridgeServer(
       const tierKey = tierForTool(config, 'classify');
       const tierCfg = config.tiers[tierKey];
       const t0 = Date.now();
-      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierCfg.model})`);
+      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierModelLabel(tierCfg)})`);
       try {
         let safeText = text;
         let systemPrompt = CLASSIFY_SYSTEM;
@@ -599,7 +600,7 @@ export function buildBridgeServer(
             return {
               isError: true as const,
               content: [{ type: 'text' as const, text: `Prompt injection detected (risk=${dResult.risk}). Request blocked.` }],
-              _meta: buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
+              _meta: buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
             };
           }
           safeText = dResult.wrappedText;
@@ -627,13 +628,13 @@ export function buildBridgeServer(
           extra.signal,
         );
         const latencyMs = Date.now() - t0;
-        const footerText = buildFooter({ model: tierCfg.model, tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens });
+        const footerText = buildFooter({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens });
         return {
           content: [
             { type: 'text' as const, text: result.text },
             ...(footerText ? [{ type: 'text' as const, text: footerText }] : []),
           ],
-          _meta: buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs, result, defender: defenderMeta }),
+          _meta: buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, result, defender: defenderMeta }),
         };
       } catch (err) {
         return toolCallError(err);
@@ -681,7 +682,7 @@ export function buildBridgeServer(
       const tierKey = tierForTool(config, 'extract');
       const tierCfg = config.tiers[tierKey];
       const t0 = Date.now();
-      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierCfg.model})`);
+      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierModelLabel(tierCfg)})`);
       try {
         // Schema sanitation (F2 sanitizer)
         const sanitized = sanitizeSchemaForOllama(schema);
@@ -689,7 +690,7 @@ export function buildBridgeServer(
           return {
             isError: true as const,
             content: [{ type: 'text' as const, text: `Schema rejected: $ref is not supported (path: ${sanitized.path}). Resolve all $ref before calling extract.` }],
-            _meta: buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 } }),
+            _meta: buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 } }),
           };
         }
 
@@ -704,7 +705,7 @@ export function buildBridgeServer(
             return {
               isError: true as const,
               content: [{ type: 'text' as const, text: `Prompt injection detected (risk=${dResult.risk}). Request blocked.` }],
-              _meta: buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta, schemaStripped: sanitized.stripped }),
+              _meta: buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta, schemaStripped: sanitized.stripped }),
             };
           }
           safeText = dResult.wrappedText;
@@ -727,9 +728,9 @@ export function buildBridgeServer(
         const savedInputTokensEstimate = src.bytes !== undefined
           ? Math.max(0, Math.floor(src.bytes / 4) - result.completionTokens)
           : undefined;
-        const footerText = buildFooter({ model: tierCfg.model, tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens, savedTokensEstimate: savedInputTokensEstimate });
+        const footerText = buildFooter({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens, savedTokensEstimate: savedInputTokensEstimate });
         const meta = buildMeta({
-          model: tierCfg.model,
+          model: tierModelLabel(tierCfg),
           tier: tierKey,
           latencyMs,
           result,
@@ -787,7 +788,7 @@ export function buildBridgeServer(
       const tierKey = tierForTool(config, 'transform');
       const tierCfg = config.tiers[tierKey];
       const t0 = Date.now();
-      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierCfg.model})`);
+      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierModelLabel(tierCfg)})`);
       try {
         let safeText = src.text;
         let systemPrompt = TRANSFORM_SYSTEM;
@@ -800,7 +801,7 @@ export function buildBridgeServer(
             return {
               isError: true as const,
               content: [{ type: 'text' as const, text: `Prompt injection detected (risk=${dResult.risk}). Request blocked.` }],
-              _meta: buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
+              _meta: buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
             };
           }
           safeText = dResult.wrappedText;
@@ -821,8 +822,8 @@ export function buildBridgeServer(
         const savedInputTokensEstimate = src.bytes !== undefined
           ? Math.max(0, Math.floor(src.bytes / 4) - result.completionTokens)
           : undefined;
-        const footerText = buildFooter({ model: tierCfg.model, tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens, savedTokensEstimate: savedInputTokensEstimate });
-        const meta = buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs, result, defender: defenderMeta, savedInputTokensEstimate });
+        const footerText = buildFooter({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens, savedTokensEstimate: savedInputTokensEstimate });
+        const meta = buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, result, defender: defenderMeta, savedInputTokensEstimate });
         if (source_uri) { meta['dev.ollamamcpbridge/source_uri'] = source_uri; meta['dev.ollamamcpbridge/source_bytes'] = src.bytes; }
         return {
           content: [
@@ -891,7 +892,7 @@ export function buildBridgeServer(
       const tierKey = tierForTool(config, 'diff-semantic-index');
       const tierCfg = config.tiers[tierKey];
       const t0 = Date.now();
-      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierCfg.model})`);
+      await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierModelLabel(tierCfg)})`);
 
       try {
         // Pre-parse the diff so the model gets a structured index + raw diff.
@@ -910,7 +911,7 @@ export function buildBridgeServer(
             return {
               isError: true as const,
               content: [{ type: 'text' as const, text: `Prompt injection detected (risk=${dResult.risk}). Request blocked.` }],
-              _meta: buildMeta({ model: tierCfg.model, tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
+              _meta: buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs: Date.now() - t0, result: { promptTokens: 0, completionTokens: 0 }, defender: defenderMeta }),
             };
           }
           safeText = dResult.wrappedText;
@@ -978,12 +979,12 @@ export function buildBridgeServer(
           ? Math.max(0, Math.floor(src.bytes / 4) - result.completionTokens)
           : undefined;
         const footerText = buildFooter({
-          model: tierCfg.model, tier: tierKey, latencyMs,
+          model: tierModelLabel(tierCfg), tier: tierKey, latencyMs,
           promptTokens: result.promptTokens, completionTokens: result.completionTokens,
           savedTokensEstimate: savedInputTokensEstimate,
         });
         const meta = buildMeta({
-          model: tierCfg.model, tier: tierKey, latencyMs, result,
+          model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, result,
           defender: defenderMeta, savedInputTokensEstimate,
         });
         if (source_uri) {

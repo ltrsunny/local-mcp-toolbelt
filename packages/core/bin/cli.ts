@@ -94,35 +94,63 @@ program
   .description('Run the MCP bridge server over stdio (for MCP clients).')
   .option(
     '--tier-b <name>',
-    'Ollama model for Tier B (summarize, classify, extract)',
+    'Ollama model tag for Tier B (deprecated: prefer --tier-b-path)',
     process.env.OMCP_TIER_B ?? DEFAULT_CONFIG.tiers.B.model,
   )
   .option(
     '--tier-c <name>',
-    'Ollama model for Tier C (summarize-long, heavy tasks)',
+    'Ollama model tag for Tier C (deprecated: prefer --tier-c-path)',
     process.env.OMCP_TIER_C ?? DEFAULT_CONFIG.tiers.C.model,
   )
   .option(
+    '--tier-b-path <gguf>',
+    'GGUF file path for Tier B (llama.cpp backend; preferred over --tier-b)',
+    process.env.OMCP_TIER_B_PATH,
+  )
+  .option(
+    '--tier-c-path <gguf>',
+    'GGUF file path for Tier C (llama.cpp backend; preferred over --tier-c)',
+    process.env.OMCP_TIER_C_PATH,
+  )
+  .option(
     '--host <url>',
-    'Ollama host (defaults to $OLLAMA_HOST env var, then http://127.0.0.1:11434)',
+    'Ollama host (only used by Ollama-tier fallback; ignored when both tiers run on llama.cpp)',
     process.env['OLLAMA_HOST'] ?? DEFAULT_OLLAMA_HOST,
   )
-  .action(async (opts: { tierB: string; tierC: string; host: string }) => {
-    const config = withOverrides(DEFAULT_CONFIG, {
-      tierOverrides: {
-        B: { model: opts.tierB },
-        C: { model: opts.tierC },
-      },
-    });
-    try {
-      await runBridgeServerStdio({ config, ollamaHost: opts.host });
-    } catch (err) {
-      const msg =
-        err instanceof OllamaDaemonError ? err.message : (err as Error).message;
-      process.stderr.write(`serve: ${msg}\n`);
-      process.exit(1);
-    }
-  });
+  .action(
+    async (opts: {
+      tierB: string;
+      tierC: string;
+      tierBPath?: string;
+      tierCPath?: string;
+      host: string;
+    }) => {
+      // modelPath wins over the deprecated `model` (Ollama tag) when both
+      // are present. Cleared model field is the signal to backend-factory
+      // that this tier should use the llama.cpp backend.
+      const tierBOverride = opts.tierBPath
+        ? { modelPath: opts.tierBPath, model: undefined }
+        : { model: opts.tierB };
+      const tierCOverride = opts.tierCPath
+        ? { modelPath: opts.tierCPath, model: undefined }
+        : { model: opts.tierC };
+
+      const config = withOverrides(DEFAULT_CONFIG, {
+        tierOverrides: {
+          B: tierBOverride as Partial<typeof DEFAULT_CONFIG.tiers.B>,
+          C: tierCOverride as Partial<typeof DEFAULT_CONFIG.tiers.C>,
+        },
+      });
+      try {
+        await runBridgeServerStdio({ config, ollamaHost: opts.host });
+      } catch (err) {
+        const msg =
+          err instanceof OllamaDaemonError ? err.message : (err as Error).message;
+        process.stderr.write(`serve: ${msg}\n`);
+        process.exit(1);
+      }
+    },
+  );
 
 program
   .command('config')

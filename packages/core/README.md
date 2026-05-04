@@ -1,12 +1,18 @@
 # ollama-mcp-bridge
 
 Universal MCP server that bridges any MCP client (Claude Desktop, Cursor, Cline,
-Zed, …) to a local [Ollama](https://ollama.com) instance. Lets the frontier
-assistant delegate lightweight tasks to a small local model — summarising,
-classifying, extracting structured data, diffing commits — so its token budget
-is preserved for reasoning that actually requires frontier capability.
+Zed, …) to a local LLM. Lets the frontier assistant delegate lightweight tasks
+to a small local model — summarising, classifying, extracting structured data,
+diffing commits — so its token budget is preserved for reasoning that actually
+requires frontier capability.
 
 Data stays on your machine. Works offline once models are downloaded.
+
+**v0.4.0+ runs on [llama.cpp](https://github.com/ggml-org/llama.cpp) directly via
+`node-llama-cpp`** — no daemon, no separate process, in-process inference. The
+deprecated Ollama path is retained for one minor version for backward
+compatibility (see ethical context:
+<https://sleepingrobots.com/dreams/stop-using-ollama/>).
 
 ## Tools (v0.3.0)
 
@@ -42,8 +48,45 @@ existing `job_id` (dedup).
 
 ## Setup (Claude Desktop / Claude Code)
 
+### Recommended: llama.cpp backend (v0.4.0+)
+
+1. Download a GGUF model for each tier — for example:
+
+   ```bash
+   mkdir -p ~/.ollama-mcp-bridge/models
+   # Tier B (small/fast): Qwen 3 7B at Q4_K_M (~5 GB)
+   curl -L -o ~/.ollama-mcp-bridge/models/qwen3-7b-instruct.Q4_K_M.gguf \
+     https://huggingface.co/Qwen/Qwen3-7B-Instruct-GGUF/resolve/main/qwen3-7b-instruct.Q4_K_M.gguf
+   # Tier C (long-context): Qwen 3.5 8B-9B class — see docs/scope-memos for verified May 2026 list
+   ```
+
+2. Configure your MCP client:
+
+   ```jsonc
+   // ~/Library/Application Support/Claude/claude_desktop_config.json
+   {
+     "mcpServers": {
+       "ollama-bridge": {
+         "command": "node",
+         "args": [
+           "/path/to/packages/core/dist/bin/cli.js",
+           "serve",
+           "--tier-b-path", "/Users/you/.ollama-mcp-bridge/models/qwen3-7b-instruct.Q4_K_M.gguf",
+           "--tier-c-path", "/Users/you/.ollama-mcp-bridge/models/qwen3.5-9b.Q4_K_M.gguf"
+         ]
+       }
+     }
+   }
+   ```
+
+   Or use environment variables `OMCP_TIER_B_PATH` / `OMCP_TIER_C_PATH`.
+
+The first call loads the GGUF into memory + initializes Metal (~5–15 s on
+Apple Silicon). Subsequent calls reuse the loaded model.
+
+### Deprecated: Ollama backend (v0.3.x compatibility)
+
 ```jsonc
-// ~/Library/Application Support/Claude/claude_desktop_config.json
 {
   "mcpServers": {
     "ollama-bridge": {
@@ -54,11 +97,12 @@ existing `job_id` (dedup).
 }
 ```
 
-Required Ollama models:
 ```bash
-ollama pull qwen3:4b      # Tier B — all synchronous tools + diff-semantic-index
-ollama pull qwen2.5:7b    # Tier C — summarize-long, summarize-long-chunked
+ollama pull qwen3:4b      # Tier B
+ollama pull qwen2.5:7b    # Tier C
 ```
+
+The Ollama path will be removed in v0.5.0.
 
 ## CLI
 

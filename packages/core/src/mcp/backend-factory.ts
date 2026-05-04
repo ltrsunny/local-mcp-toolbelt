@@ -2,19 +2,36 @@
  * Backend factory — turns a (BridgeConfig, toolName) pair into a concrete
  * `LlmBackend` instance.
  *
- * v0.2.0 always returns `OllamaBackend` because Ollama is the only shipped
- * backend. v0.3.0 will branch on a backend-selector env var (or per-tier
- * config field) to return either `OllamaBackend` or `LlamaCppBackend`.
+ * v0.4.0: branches on which TierConfig field is set —
+ *   - `modelPath`  → `LlamaCppBackend` (in-process llama.cpp; preferred)
+ *   - `model`      → `OllamaBackend`   (deprecated; removed in v0.5.0)
  *
- * Tool handlers should call this once per invocation and use the returned
- * backend for that single call. Constructing a backend instance is cheap
- * (no network, no resource bind) so we don't memoize.
+ * `LlamaCppBackend` instances are memoized per `modelPath` because model
+ * load is expensive (Metal init + multi-GB mmap). The cache is process-wide
+ * and lives until shutdown — a long-lived bridge process loads each tier's
+ * model exactly once.
+ *
+ * `OllamaBackend` instances remain non-memoized: construction is cheap
+ * (no resource bind), and `OllamaClient` is the shared object that holds
+ * any per-process state.
+ *
+ * Tool handlers should call this once per invocation; the returned backend
+ * is safe to use for that single call (and for the lifetime of the process,
+ * for the LlamaCpp variant).
  */
 
 import type { LlmBackend } from '../llm/backend.js';
 import { OllamaBackend } from '../llm/ollama-backend.js';
+import { LlamaCppBackend } from '../llm/llama-cpp-backend.js';
 import type { OllamaClient } from '../ollama/client.js';
 import { type BridgeConfig, tierForTool } from '../config/tiers.js';
+
+/**
+ * Process-wide cache of LlamaCppBackend instances, keyed by modelPath.
+ * Each entry holds an open GGUF model + pre-allocated context for the
+ * lifetime of the bridge process.
+ */
+const llamaCppCache = new Map<string, LlamaCppBackend>();
 
 export function backendForTool(
   client: OllamaClient,
@@ -23,11 +40,41 @@ export function backendForTool(
 ): LlmBackend {
   const tier = tierForTool(config, toolName);
   const tcfg = config.tiers[tier];
-  return new OllamaBackend(client, {
-    modelTag: tcfg.model,
-    keepAlive: tcfg.keepAlive,
-    // `think` is not currently surfaced in TierConfig — the existing tools
-    // all default to think:false (the bridge thesis). When a tier needs to
-    // opt in, add a `think` field to TierConfig and pass it through here.
-  });
+
+  // Prefer the new field. If both are present, modelPath wins (per the
+  // dual-field migration documented in tiers.ts).
+  if (tcfg.modelPath !== undefined) {
+    let cached = llamaCppCache.get(tcfg.modelPath);
+    if (cached === undefined) {
+      cached = new LlamaCppBackend({
+        modelPath: tcfg.modelPath,
+        contextSize: tcfg.numCtx ?? 8192,
+      });
+      llamaCppCache.set(tcfg.modelPath, cached);
+    }
+    return cached;
+  }
+
+  if (tcfg.model !== undefined) {
+    return new OllamaBackend(client, {
+      modelTag: tcfg.model,
+      keepAlive: tcfg.keepAlive,
+      // `think` not currently surfaced in TierConfig.
+    });
+  }
+
+  throw new Error(
+    `Tier ${tier} has neither modelPath nor model configured (toolName: ${toolName})`,
+  );
+}
+
+/**
+ * Test-only: clear the LlamaCpp cache so a unit test can re-seed it.
+ * Production code never calls this.
+ */
+export function _resetLlamaCppCacheForTests(): void {
+  for (const inst of llamaCppCache.values()) {
+    void inst.dispose();
+  }
+  llamaCppCache.clear();
 }

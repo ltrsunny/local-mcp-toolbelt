@@ -23,19 +23,39 @@
 export type Tier = 'B' | 'C';
 
 export interface TierConfig {
-  /** Ollama model tag, e.g. "qwen3:4b-instruct-2507-q4_K_M". */
-  model: string;
+  /**
+   * Ollama model tag, e.g. "qwen3:4b-instruct-2507-q4_K_M".
+   *
+   * @deprecated since v0.4.0 — use `modelPath` for the llama.cpp backend.
+   * Ollama itself is being removed (see
+   * `docs/scope-memos/v0.4.0-llama-cpp-backend-2026-05-04.md` for the ethical
+   * rationale per https://sleepingrobots.com/dreams/stop-using-ollama/). The
+   * field is retained for one minor version so externally-managed configs
+   * don't break on upgrade. Removal in v0.5.0.
+   */
+  model?: string;
+  /**
+   * Absolute path to a GGUF file consumed by the llama.cpp backend (v0.4.0+).
+   * Either `modelPath` or the deprecated `model` MUST be set; if both are
+   * present, `modelPath` wins.
+   */
+  modelPath?: string;
   /**
    * Ollama `keep_alive` parameter. Number = seconds, string = duration,
-   * `-1` = forever. The primary tier should use -1 to eliminate cold-start
-   * on every call; on-demand tiers use a shorter window (e.g. 300).
+   * `-1` = forever. Ignored by the llama.cpp backend (model stays loaded
+   * for the bridge process lifetime).
    */
   keepAlive?: string | number;
   /**
-   * Ollama `num_ctx` — context window size in tokens.
-   * Ollama's runtime default is 4096 regardless of the model's maximum.
-   * Without this field the model silently left-truncates inputs that exceed
-   * 4096 tokens. Set explicitly per tier to prevent data loss.
+   * Context window size in tokens.
+   *
+   * Ollama: maps to `num_ctx`; runtime default is 4096 regardless of the
+   * model's maximum. Without this field the model silently left-truncates
+   * inputs that exceed 4096 tokens. Set explicitly per tier to prevent
+   * data loss.
+   *
+   * llama.cpp: fixed at context-creation time (KV cache pre-allocated for
+   * the declared size), so this is the *ceiling* the tier pre-reserves.
    *
    * Tier B → 8192 (fast 4B model; fits comfortably on 16 GB Mac)
    * Tier C → 32768 (7B model with ~2 GB KV cache at this size)
@@ -117,4 +137,16 @@ export function tierForTool(config: BridgeConfig, toolName: string): Tier {
 
 export function modelForTool(config: BridgeConfig, toolName: string): TierConfig {
   return config.tiers[tierForTool(config, toolName)];
+}
+
+/**
+ * Display/telemetry identifier for a tier. Prefers the GGUF filename when
+ * `modelPath` is set; otherwise falls back to the deprecated Ollama tag.
+ * Always returns a non-empty string so footers/_meta never carry undefined.
+ */
+export function tierModelLabel(tcfg: TierConfig): string {
+  if (tcfg.modelPath !== undefined && tcfg.modelPath.length > 0) {
+    return tcfg.modelPath.split('/').pop() ?? tcfg.modelPath;
+  }
+  return tcfg.model ?? 'unconfigured';
 }
