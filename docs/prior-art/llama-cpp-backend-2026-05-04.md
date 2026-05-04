@@ -155,22 +155,39 @@ single file (Cosmopolitan Libc, runs on macOS/Linux/Windows without install).
 
 ---
 
+## Ethical context (Q1 resolved)
+
+Source: https://sleepingrobots.com/dreams/stop-using-ollama/
+
+The objection is to **Ollama as a company and product** — both daemon and npm package.
+Specific charges:
+- README omitted llama.cpp attribution for 400+ days; binary distributions omitted
+  required MIT license notices; maintainers ignored a compliance GitHub issue for
+  over a year
+- Forked away from llama.cpp in mid-2025; reintroduced already-solved bugs;
+  benchmarks show llama.cpp 1.8x faster on same hardware after the fork
+- Misleading model naming (DeepSeek-R1 distills listed without "Distill" prefix)
+- Introduced cloud-hosted models without clearly disclosing third-party data routing
+- Pattern: build on open-source → minimize attribution → create lock-in → launch
+  proprietary components → monetize
+
+The article explicitly recommends **llama.cpp** (the ggml-org project) as the
+replacement. Both `node-llama-cpp` and `llama-server` are llama.cpp-based with
+proper attribution and MIT licensing — both are ethically acceptable.
+
+**Q1 is closed**: full Ollama removal (daemon + npm package) is the requirement.
+
 ## Open questions for Auditor
 
-1. **What exactly is the ethical objection to Ollama?** The `ollama` npm package
-   (MIT) and the Ollama daemon are separate things. If the objection is the
-   *daemon/company*, `llama-server` still requires a daemon. If the objection is
-   the *npm package*, `llama-server` + raw fetch already solves it.
-
-2. **Grammar subset**: `node-llama-cpp`'s `createGrammarForJsonSchema` supports
+1. **Grammar subset**: `node-llama-cpp`'s `createGrammarForJsonSchema` supports
    "only a small subset of JSON Schema spec." Do our `extract`/`classify` schemas
    fall within that subset? (Likely yes — they're flat objects — but needs a test.)
 
-3. **Binary size trade-off**: Adding ~100–200 MB of pre-built Metal binaries to the
+2. **Binary size trade-off**: Adding ~100–200 MB of pre-built Metal binaries to the
    package. Is that acceptable for a project where "unpacked dist size ≈ runtime
    cost"? (CLAUDE.md note.)
 
-4. **Context pre-creation**: With `node-llama-cpp`, context size is fixed per
+3. **Context pre-creation**: With `node-llama-cpp`, context size is fixed per
    context object, not per call. Pre-creating one context per tier is the clean
    solution. Acceptable?
 
