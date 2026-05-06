@@ -1,0 +1,10 @@
+{
+  "kind": "classify",
+  "input_file": "input.txt",
+  "gold_file": "gold.json",
+  "categories_file": "categories.json",
+  "allow_multiple": true,
+  "explain": true,
+  "instance_id": "default",
+  "source": "synthetic ambiguous text written by gemini-3.1-pro"
+}

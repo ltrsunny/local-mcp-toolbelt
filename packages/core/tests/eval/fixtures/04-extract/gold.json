@@ -1,0 +1,17 @@
+{
+  "title": "Unveiling Latent Attention Patterns in Dynamically Routed Sparse Mixture-of-Experts Models",
+  "authors": [
+    "Dr. Anya Sharma",
+    "Prof. Benjamin Carter",
+    "Ms. Chloe Davis"
+  ],
+  "num_parameters_billions": 1200,
+  "benchmark_name": "Long-Range Understanding (LRU) benchmark",
+  "accuracy_delta_pct": 3.1,
+  "key_finding_summary": "Optimal routing strategies lead to a lower EAD, indicating a tighter alignment between attention and expert specialization.",
+  "citations": [
+    "[Smith et al., 2023]",
+    "[Wang et al., 2024]",
+    "[Johnson et al., 2024]"
+  ]
+}

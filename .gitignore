@@ -18,3 +18,7 @@ coverage/
 # Users running bridge against this repo (or our own dogfooding) will
 # create transient job files here; never commit them.
 .memory/
+
+# v0.5.0 eval harness — run outputs (one JSONL per matrix run).
+# Reports under docs/notes/ are committed; raw runs are not.
+packages/core/tests/eval/runs/

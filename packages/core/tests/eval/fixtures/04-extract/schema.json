@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "title": { "type": "string" },
+    "authors": { "type": "array", "items": { "type": "string" } },
+    "num_parameters_billions": { "type": "number" },
+    "benchmark_name": { "type": "string" },
+    "accuracy_delta_pct": { "type": "number" },
+    "key_finding_summary": { "type": "string", "maxLength": 200 },
+    "citations": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": [
+    "title",
+    "authors",
+    "num_parameters_billions",
+    "benchmark_name",
+    "accuracy_delta_pct",
+    "key_finding_summary",
+    "citations"
+  ]
+}

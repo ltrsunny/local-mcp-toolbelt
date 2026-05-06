@@ -1,0 +1,9 @@
+{
+  "kind": "summarize-long",
+  "input_file": "input.txt",
+  "gold_file": "gold.md",
+  "style": "1-2 sentence lead followed by 3-6 short bullet points",
+  "instance_id": "default",
+  "source": "synthetic build-vs-buy podcast transcript by qwen3-coder-480b on Nvidia NIM",
+  "note": "Larger input than 01-summarize-long; intended to stress the summarize-long-chunked path. Same kind/invoker as 01 today; chunked-path runner integration is a follow-up."
+}

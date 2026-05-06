@@ -1,0 +1,67 @@
+[Standup notes — Tuesday Apr 28, 2026, 09:32 — recorded by Priya. Attendees: Priya (PM), Marcus (backend lead), Jin (frontend), Sara (data eng), Tom (SRE).]
+
+Priya: alright let's get going people are joining late again. Marcus you wanna kick off?
+
+Marcus: sure uh so the v2.7 cutover is still planned for May 12 but we've got a problem on the migration side, the new tenant index is taking longer to backfill than I thought, like maybe — hey Tom did you ever get the read replica in eu-central spun up?
+
+Tom: not yet I'm doing it today, latest by EOD Wednesday — wait so May 12 is what, two weeks?
+
+Marcus: yeah, two weeks. So Tom needs that replica up by May 6 at the absolute latest because Sara's gonna run the dual-write validation against it for like 4-5 days minimum.
+
+Sara: 5 days minimum, yeah. Also separately — Priya remind me to file the dataclass deprecation ticket for the legacy event schema, the one we keep saying we'll do.
+
+Priya: okay noted. Do it by Friday May 1 — Sara's the owner.
+
+Sara: fine fine fine.
+
+Jin: hey real quick, on a totally different topic, anyone tried the new ramen place on 4th? I went last night —
+
+Tom: wait first — Jin can you actually confirm the frontend feature flag for the new tenant picker is gated correctly? We had that incident in March.
+
+Jin: yeah it's gated, it's behind `ff.tenant_picker_v2`, only enabled for internal users right now. Roll out to public is May 14, which is two days after backend cutover, that's intentional.
+
+Priya: good, so action item: Jin, write up the rollout plan one-pager — owner Jin, due May 5 so we can review it in next week's standup.
+
+Jin: yep got it.
+
+Marcus: also Priya we need to figure out who's on call for the cutover window. May 12, 8 PM Pacific, we need at least three people.
+
+Priya: I'll send a Doodle today. So, action: Priya, send on-call signup Doodle, due today, EOD.
+
+Tom: speaking of on-call, the Pagerduty escalation policy still has Hannah listed and she left in February. Like that's been broken for 3 months.
+
+Priya: oh god. Okay Tom, you fix it — owner Tom, due Friday May 1.
+
+Tom: fine.
+
+Sara: also the metric pipeline alert for the daily ingestion lag — we're getting like 40-60 false alerts a week, the threshold's wrong, it's still set from the v2.5 traffic patterns. Either we tune it or we mute it but we can't keep ignoring it.
+
+Marcus: tune it, don't mute it.
+
+Sara: fine, I'll tune it. End of next sprint, so May 15.
+
+Priya: action: Sara tune the daily ingestion lag alert by May 15.
+
+Jin: oh weather's supposed to be nice this weekend right, anyone going hiking?
+
+Tom: yeah I'm doing Mount Tam Saturday if anyone wants —
+
+Priya: focus people. Anything else for cutover blockers?
+
+Marcus: just the migration script — I want a second set of eyes on the foreign key constraints. Tom would you review it?
+
+Tom: yeah send me the PR. I'll get back to you within 48 hours of receiving.
+
+Marcus: cool, I'll send it Wednesday April 29. So Tom reviews by May 1.
+
+Priya: noted — Marcus send PR Wednesday, Tom review within 48 hours.
+
+Sara: oh and the customer comms — who's writing the maintenance window email?
+
+Priya: that's me. I'll draft it this week, send to Marcus and Jin for review by Thursday April 30, finalize and send to customers May 5.
+
+Jin: cool. Are we adopting that ramen place for next team lunch then?
+
+Priya: sure, I'll book it. Okay we're done, see you tomorrow.
+
+[End — duration 28 min]

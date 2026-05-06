@@ -1,0 +1,8 @@
+{
+  "kind": "summarize-long",
+  "input_file": "input.txt",
+  "gold_file": "gold.md",
+  "style": "1-2 sentence lead followed by 3-6 short bullet points",
+  "instance_id": "default",
+  "source": "synthetic technical postmortem written by gemini-3.1-pro for v0.5.0 eval"
+}

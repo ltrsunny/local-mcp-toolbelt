@@ -1,0 +1,8 @@
+{
+  "kind": "extract",
+  "input_file": "input.txt",
+  "gold_file": "gold.json",
+  "schema_file": "schema.json",
+  "instance_id": "default",
+  "source": "synthetic research-paper abstract written by gemini-3.1-pro"
+}

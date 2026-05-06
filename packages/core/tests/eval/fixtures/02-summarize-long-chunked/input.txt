@@ -1,0 +1,164 @@
+Alex: Okay, so we're looking at about 120 engineering hours to build our own feature flagging system. That's three sprints with our current team, assuming we want basic targeting and analytics capabilities.
+
+Jordan: Three sprints? Try six months, Alex. I've seen what "basic" feature flags look like when teams build them in-house. You're talking about a full-featured system with user targeting, percentage rollouts, dependency management - that's not basic.
+
+Alex: I'm being conservative here, Jordan. We don't need all the bells and whistles that LaunchDarkly charges for. Our use case is pretty straightforward - we want to toggle features for our enterprise customers and run A/B tests. We can build exactly what we need.
+
+Jordan: And what happens when we need to scale to multiple environments? What happens when we need audit trails for compliance? What happens when product managers start asking for the analytics dashboard that shows flag performance across user segments?
+
+Alex: Those are solvable problems. I've already specced out the architecture. We use Redis for fast flag evaluation, PostgreSQL for persistence, and throw some GraphQL on top for the dashboard. Total infrastructure cost: maybe $300 a month.
+
+Jordan: $300 a month plus two engineers working on maintenance. LaunchDarkly's enterprise plan is $2,400 a month, but that includes their support for API reliability, their SDKs, their monitoring, their proven track record with companies like IBM and Intuit.
+
+Alex: Their enterprise plan also includes features we won't use for another two years. We're a mid-sized SaaS company with 50,000 active users, not a Fortune 500 enterprise. Their starter plan is $150 a month, but it only supports up to 10 flags, and we need closer to 50.
+
+Jordan: So what's your total cost of ownership over three years? LaunchDarkly's platform, sure it's expensive upfront, but the maintenance burden is zero. No late night calls debugging our homegrown system when flags aren't evaluating correctly in production.
+
+Alex: I'm not proposing we build something flaky. I'm talking about a robust system with proper testing, monitoring, and alerting. The cost is roughly $75,000 in engineering time over three years, but we get complete control. We can modify it for our specific workflows, integrate it with our existing analytics pipeline, and there's no vendor lock-in.
+
+Jordan: $75,000 is just salary cost. What about opportunity cost? What about the three senior engineers we're pulling off customer-facing features to build flag infrastructure? What about the 80 hours a month of maintenance overhead I'll need to budget for once we go live?
+
+Alex: That's the beauty of building it ourselves - we own the maintenance. When something breaks, we fix it. When we need a new feature, we build it. When LaunchDarkly has an outage, our business doesn't grind to a halt.
+
+Jordan: Until there's an outage in our system, and then what? We're not an observability company, Alex. We're a document collaboration tool. Our expertise is in real-time editing, not infrastructure primitives.
+
+Alex: Fair point, but look at the feature set. LaunchDarkly's basic plan gives you 10 flags for $150 a month. Their enterprise plan supports 10,000 flags - we'll never use that. But we also don't get multi-environment support, percentage rollouts, or scheduled changes in their basic plan.
+
+Jordan: That's because those are advanced features that cost money. Their enterprise plan is $2,400 because it's comprehensive. But you're right - we probably don't need 10,000 flags. We need maybe 50 active flags at any given time.
+
+Alex: Which means we're overpaying for features we don't need. That's the fundamental problem with the buy argument - we're paying for the kitchen sink when we want a specific recipe.
+
+Jordan: But their kitchen sink is battle-tested. How many enterprise customers have we had ask about our feature flagging system? Not the features, just the reliability.
+
+Alex: A few.
+
+Jordan: And how many have asked about specific edge cases that would take our homegrown system weeks to implement? Like gradual rollouts based on user behavior patterns?
+
+Alex: Okay, I'll give you that one. The targeting rules in LaunchDarkly are sophisticated. I was underestimating the complexity there.
+
+Jordan: See? This is why I'm pushing back. You're thinking like a developer - "we can build this." I'm thinking like an operator - "how do we maintain this when the original developers move to another project?"
+
+Alex: But that's exactly my point about control. If we build it, we understand every piece of it. If there's a performance issue, we can debug it. If we need a new integration, we can build it. If security requires us to audit our stack, we can.
+
+Jordan: With LaunchDarkly, security is their problem. They've already been through SOC 2 Type II, they've handled PII compliance, they've dealt with the enterprise sales security questionnaires.
+
+Alex: We can handle compliance. We have a security team.
+
+Jordan: Do we? Really? When was the last time we did a penetration test on a homegrown system? When did we last have an external audit? We're a document collaboration company, not an infrastructure company.
+
+Alex: You're right about that. The compliance piece is... non-trivial. I was underestimating the regulatory burden.
+
+Jordan: It's not just compliance. It's support burden. It's "we need to upgrade the Redis version" burden. It's "oh, the flag evaluation is slow in this region" burden. It's "the SDK has a memory leak" burden.
+
+Alex: But their enterprise plan includes support for their SDKs. We'd be building our own SDKs if we roll our own.
+
+Jordan: Exactly. And then when iOS 17 breaks something in the network stack, we're scrambling to figure out why flags aren't evaluating. When we use LaunchDarkly's SDKs, they've already tested that scenario.
+
+Alex: Their SDKs are just wrappers around REST calls. We can build lightweight ones.
+
+Jordan: With zero documentation from their breaking changes? Zero community support when something goes wrong?
+
+Alex: No, but you're right that we get their support and their community when things go wrong.
+
+Jordan: Their enterprise customers are big tech companies that have been using feature flags for years. They've already solved the "flag evaluation is slow" problem. They've already solved the "how do you handle 10,000 flags" problem.
+
+Alex: True, but we don't have 10,000 flags. We have 50.
+
+Jordan: For now. But their system scales to 10,000 because they've already solved the scaling problems. We don't need to solve them.
+
+Alex: That's a fair point about not reinventing the wheel.
+
+Jordan: And the cost-benefit analysis changes when you factor in the learning. How long would it take our team to learn the edge cases that LaunchDarkly's team learned over five years of enterprise customer feedback?
+
+Alex: Months, probably. But we're also talking about vendor lock-in. What happens if they discontinue a feature we depend on?
+
+Jordan: What happens if we build a feature flagging system that can't handle our growth? That's a much higher risk to me.
+
+Alex: We can always export our flags. They're just key-value pairs.
+
+Jordan: With relationships to user segments, with scheduled changes, with percentage rollouts, with dependencies between flags. Good luck exporting that to another system.
+
+Alex: Okay, but let's talk real numbers. LaunchDarkly enterprise is $2,400 a month. We could build and maintain our own for $300 a month in infrastructure costs.
+
+Jordan: Plus however many engineering hours to maintain it. Plus the opportunity cost of not building features. Plus the risk that when it breaks, it takes down our production system.
+
+Alex: Their API has a 99.9% uptime SLA. Ours would probably be higher - we're good at infrastructure.
+
+Jordan: For the first month. Then what happens when there's a network partition? When AWS goes down in us-east-1? When Redis has a memory leak?
+
+Alex: We'd fix it.
+
+Jordan: How long would that take? How many customers would be affected? LaunchDarkly's had three major outages in five years. How many have we had?
+
+Alex: Fair point. I'm still not convinced we can't build something adequate.
+
+Jordan: What's adequate for feature flags? Is "adequate" 99% available? 99.9%? What's our escalation path when "adequate" breaks?
+
+Alex: Our escalation path is "wake up the on-call engineer."
+
+Jordan: And if that engineer is on vacation? If they've left the company? If they never documented the flag system?
+
+Alex: That's... actually happened to us before. When Mark left and we had that Redis issue with the document cache.
+
+Jordan: See? That's not theoretical risk. That's real risk we've already lived through.
+
+Alex: But building our own means we're not dependent on a vendor's roadmap. We can add percentage rollouts when we need them, not when their product team prioritizes them.
+
+Jordan: What if we need them now? What if their enterprise plan costs more, but includes the features we discover we need six months from now?
+
+Alex: We could start with their starter plan, upgrade when we need more.
+
+Jordan: And pay for features we don't use? Get locked into a contract that requires legal review?
+
+Alex: I see where you're going with this.
+
+Jordan: I'm going to a risk assessment. We've built adequate systems before. They've broken in production. The question isn't "can we build this?" The question is "what's the cost of being wrong?"
+
+Alex: The cost of being wrong and building our own is we're down for six hours while we debug why caching isn't working.
+
+Jordan: The cost of being wrong and buying is we're paying $2,400/month for features we don't use.
+
+Alex: But their pricing page doesn't say what features are in each tier. It's $2,400 for "enterprise."
+
+Jordan: Which includes everything we might need. Including features we won't know we need for two years.
+
+Alex: You've got me thinking. What if we do a hybrid approach? Use their starter plan for basic flagging, build our own advanced features.
+
+Jordan: What advanced features? We're a document collaboration tool, not Netflix.
+
+Alex: Multi-document collaboration sessions. Real-time conflict resolution. Advanced permissions.
+
+Jordan: All solvable with their targeting rules. "Users in this group see this version of the editor."
+
+Alex: That's... actually pretty comprehensive. I was underestimating their enterprise segmentation.
+
+Jordan: Their enterprise plan includes custom user properties, but their starter plan doesn't. We'd have to build that ourselves.
+
+Alex: Which we could do. It's just JSON matching.
+
+Jordan: In a distributed system with caching and eventual consistency?
+
+Alex: Fair point. But we're getting off track. The real question is: do we want to be in the feature flag business, or do we want to be in the document collaboration business?
+
+Jordan: That's a board-level question. We're not Google. We don't have 20,000 engineers who can work on infrastructure.
+
+Alex: No, we're not. We're a mid-sized SaaS company that needs to ship features, not infrastructure primitives.
+
+Jordan: So we're agreed - we build features, we don't build infrastructure?
+
+Alex: I think so. I was convinced by the compliance argument, the support argument, the "somebody else has seen this edge case" argument.
+
+Jordan: The real clincher for me was realizing we've already lived through being wrong about building our own infrastructure. That Redis outage wasn't theoretical.
+
+Alex: It was very theoretical when it was happening at 2 AM.
+
+Jordan: Exactly. So we're agreed - we evaluate LaunchDarkly's enterprise plan, even though it's expensive?
+
+Alex: We evaluate it. We build a cost model. We figure out what features we actually need.
+
+Jordan: And if their starter plan meets 80% of our needs for 10% of the enterprise cost?
+
+Alex: We buy a plan that scales to our actual needs, not our hypotheticals.
+
+Jordan: That's the thing about hypotheticals - we've already lived some of them.
+===

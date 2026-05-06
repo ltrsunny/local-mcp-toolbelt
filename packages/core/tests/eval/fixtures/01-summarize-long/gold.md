@@ -1,0 +1,7 @@
+A 14-hour outage in Northwind's object storage service on October 26, 2024, resulted from a cascading series of three independent failures that hampered both the system and the teams responding to it.
+
+*   **Root Cause 1:** A flawed TLS certificate rotation broke data replication between regions, as the new certificate authority in `us-east-1` was not yet trusted by services in `us-west-2`, causing connection failures.
+*   **Root Cause 2:** A massive spike in retry traffic triggered a long-dormant integer overflow bug in the metadata service's sharding logic, causing requests for certain object keys to be routed to an invalid location and fail.
+*   **Root Cause 3:** The initial response was delayed by over an hour because an outdated runbook directed on-call engineers to a legacy dashboard that incorrectly showed the service as healthy, masking the emerging crisis.
+*   **Customer Impact:** The outage affected approximately 40,000 customers, with API error rates exceeding 99% for those impacted. While no persistent data loss was found, a small window of exposure could have affected fewer than 1,000 objects, which were expected to be handled by client-side retries.
+*   **Lessons Learned:** The key remediation efforts focus on fully automating and verifying certificate rotations, implementing fuzz testing and better circuit breakers for core algorithms, and treating operational documentation as code to ensure it is always current.

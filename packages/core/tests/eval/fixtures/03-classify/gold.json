@@ -1,0 +1,4 @@
+{
+  "labels": ["technical", "policy", "compliance"],
+  "reason": "The text discusses specific engineering tradeoffs (latency, security) alongside the significant policy and regulatory compliance implications for a global open-source community."
+}

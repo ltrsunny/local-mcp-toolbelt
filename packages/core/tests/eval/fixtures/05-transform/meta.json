@@ -1,0 +1,8 @@
+{
+  "kind": "transform",
+  "input_file": "input.txt",
+  "gold_file": "gold.md",
+  "instruction": "Convert these meeting notes into a numbered action-item list. Each item: \"N. <verb-phrase> — Owner: <name>; Due: <date or N/A>\". Group related items if natural. Drop conversational filler. Preserve dates/numbers/names exactly.",
+  "instance_id": "default",
+  "source": "synthetic standup notes by claude-opus-4-7"
+}
