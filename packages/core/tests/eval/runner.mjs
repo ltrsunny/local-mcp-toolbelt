@@ -1,33 +1,40 @@
 #!/usr/bin/env node
 /**
- * Eval runner: load a GGUF model via LlamaCppBackend, iterate fixtures,
+ * Eval runner: run the 5 benchmark fixtures against a local LLM backend and
  * record candidate output + latency + RAM peak into a JSONL run file.
  *
- * Usage:
+ * Supports two backends:
+ *   --model  <gguf-path>  → LlamaCppBackend (in-process node-llama-cpp)
+ *   --mlx-url <base-url>  → MlxHttpBackend  (MLX FastAPI bridge, v0.5.0+)
+ *
+ * Usage (GGUF / llama.cpp):
  *   node tests/eval/runner.mjs \
- *     --model ~/models/Qwen3-8B-Q4_K_M.gguf \
- *     [--ctx 8192] \
- *     [--tasks 01,03,05]   (default: all)
- *     [--trials 1]
+ *     --model ~/models/Mistral-Nemo-Instruct-2407-Q4_K_M.gguf \
+ *     [--ctx 16384] [--tasks all] [--trials 5]
+ *
+ * Usage (MLX HTTP bridge):
+ *   python mlx-bridge-server.py --model mlx-community/Qwen3-14B-4bit &
+ *   node tests/eval/runner.mjs \
+ *     --mlx-url http://127.0.0.1:8080 \
+ *     [--ctx 16384] [--tasks all] [--trials 5]
  *
  * Output:
- *   tests/eval/runs/<run-id>.jsonl     (one row per trial)
+ *   tests/eval/runs/<run-id>.jsonl   (one JSONL row per trial)
  *
- * Run id format: YYYYMMDD-HHMMSS-<model-stem>. Stable enough to
- * cross-reference, unique enough not to collide on rapid re-runs.
- *
- * To swap to a second model after the first run completes, dispose() is
- * always called in finally — see node-llama-cpp v3 dispose pattern (gem
- * research 2026-05-05).
+ * Latency measured end-to-end from JS (includes HTTP overhead for MLX path).
+ * RAM sampling via macOS ps (LlamaCppBackend: in-process; MlxHttpBackend:
+ * measures the Node bridge process — server-side RAM must be checked
+ * separately via `ps aux | grep mlx-bridge-server`).
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 
 import { LlamaCppBackend } from '../../dist/src/llm/llama-cpp-backend.js';
+import { MlxHttpBackend } from '../../dist/src/llm/mlx-http-backend.js';
 import {
   invokeSummarizeLong, invokeClassify, invokeExtract, invokeTransform,
 } from './lib/invoke.mjs';
@@ -41,27 +48,37 @@ const RUNS_DIR = path.join(SCRIPT_DIR, 'runs');
 // ── CLI parse ───────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-  const out = { tasks: 'all', trials: 1, ctx: 8192 };
+  const out = { tasks: 'all', trials: 1, ctx: 16384 };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--model') out.model = argv[++i];
+    else if (a === '--mlx-url') out.mlxUrl = argv[++i];
     else if (a === '--ctx') out.ctx = parseInt(argv[++i], 10);
     else if (a === '--tasks') out.tasks = argv[++i];
     else if (a === '--trials') out.trials = parseInt(argv[++i], 10);
     else if (a === '--help' || a === '-h') {
-      console.log(`runner.mjs --model <gguf-path> [--ctx 8192] [--tasks all|01,03] [--trials 1]`);
+      console.log(
+        'runner.mjs (--model <gguf-path> | --mlx-url <url>) ' +
+        '[--ctx 16384] [--tasks all|01,03] [--trials 5]',
+      );
       process.exit(0);
     }
   }
-  if (!out.model) {
-    console.error('--model <path-to-.gguf> is required');
+  if (!out.model && !out.mlxUrl) {
+    console.error('One of --model <gguf-path> or --mlx-url <url> is required');
     process.exit(2);
   }
-  // ~ expansion
-  if (out.model.startsWith('~/')) out.model = path.join(process.env.HOME, out.model.slice(2));
-  if (!existsSync(out.model)) {
-    console.error(`Model not found: ${out.model}`);
+  if (out.model && out.mlxUrl) {
+    console.error('--model and --mlx-url are mutually exclusive');
     process.exit(2);
+  }
+  // ~ expansion for GGUF path
+  if (out.model) {
+    if (out.model.startsWith('~/')) out.model = path.join(process.env.HOME, out.model.slice(2));
+    if (!existsSync(out.model)) {
+      console.error(`Model not found: ${out.model}`);
+      process.exit(2);
+    }
   }
   return out;
 }
@@ -168,7 +185,10 @@ async function main() {
   const args = parseArgs(process.argv);
   await mkdir(RUNS_DIR, { recursive: true });
 
-  const stem = path.basename(args.model).replace(/\.gguf$/i, '');
+  // Run ID: use model filename (GGUF) or URL host:port (MLX)
+  const stem = args.mlxUrl
+    ? 'mlx-' + new URL(args.mlxUrl).port
+    : path.basename(args.model).replace(/\.gguf$/i, '');
   const ts = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
   const runId = `${ts}-${stem}`;
   const runFile = path.join(RUNS_DIR, `${runId}.jsonl`);
@@ -183,7 +203,18 @@ async function main() {
     process.exit(2);
   }
 
-  const backend = new LlamaCppBackend({ modelPath: args.model, contextSize: args.ctx });
+  // ── Create backend ────────────────────────────────────────────────────────
+  let backend;
+  if (args.mlxUrl) {
+    backend = new MlxHttpBackend({ baseUrl: args.mlxUrl, numCtx: args.ctx });
+    console.log(`[runner] backend=MLX url=${args.mlxUrl} ctx=${args.ctx}`);
+  } else {
+    backend = new LlamaCppBackend({ modelPath: args.model, contextSize: args.ctx });
+    console.log(`[runner] backend=llama.cpp model=${args.model} ctx=${args.ctx}`);
+  }
+
+  const modelRef = args.mlxUrl ?? args.model;
+
   try {
     await backend.ping();
     console.log(`[runner] backend ready: ${backend.modelId}`);
@@ -200,7 +231,7 @@ async function main() {
         const label = `[runner] ${dir} trial=${trial}`;
         console.log(`${label} → start`);
         const row = await runOneTrial({
-          backend, runId, taskId: dir, fixture, modelPath: args.model, ctx: args.ctx, trial,
+          backend, runId, taskId: dir, fixture, modelPath: modelRef, ctx: args.ctx, trial,
         });
         await appendRow(runFile, row);
         if (row.error) {
@@ -211,8 +242,12 @@ async function main() {
       }
     }
   } finally {
-    await backend.dispose();
-    console.log(`[runner] backend disposed`);
+    // LlamaCppBackend requires explicit dispose (frees native Metal resources).
+    // MlxHttpBackend is stateless (HTTP-only) — no dispose needed.
+    if (typeof backend.dispose === 'function') {
+      await backend.dispose();
+      console.log(`[runner] backend disposed`);
+    }
   }
 
   console.log(`[runner] done. ${runFile}`);

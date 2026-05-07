@@ -20,7 +20,7 @@
  * Prompt rewriting, Tool use".
  */
 
-export type Tier = 'B' | 'C';
+export type Tier = 'B' | 'C' | 'D';
 
 export interface TierConfig {
   /**
@@ -47,6 +47,34 @@ export interface TierConfig {
    */
   keepAlive?: string | number;
   /**
+   * Base URL of an MLX-compatible HTTP inference server (v0.5.0+).
+   *
+   * When set, `MlxHttpBackend` is used for this tier, calling the
+   * OpenAI-compatible `/v1/chat/completions` endpoint at this URL.
+   * Takes precedence over `modelPath` when both are set.
+   *
+   * Tested with oMLX (https://github.com/jundot/omlx), which exposes an
+   * Anthropic-compatible + OpenAI-compatible API with KV-cache persistence.
+   * Also works with any server exposing `/v1/chat/completions`.
+   *
+   * Example: `"http://127.0.0.1:8000"`
+   *
+   * See `docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md` §D3.
+   */
+  mlxUrl?: string;
+  /**
+   * Model name sent in the OpenAI `model` field (v0.5.0+).
+   *
+   * Required for multi-model servers (oMLX routes by name). When omitted,
+   * `MlxHttpBackend` auto-detects the first model from `GET /v1/models`.
+   * Set explicitly to avoid the extra round-trip or to pin a specific model.
+   *
+   * Example: `"Qwen3-8B-4bit"` (must match the directory name under
+   * `~/.omlx/models/` for oMLX).
+   */
+  mlxModelName?: string;
+
+  /**
    * Context window size in tokens.
    *
    * Ollama: maps to `num_ctx`; runtime default is 4096 regardless of the
@@ -57,8 +85,12 @@ export interface TierConfig {
    * llama.cpp: fixed at context-creation time (KV cache pre-allocated for
    * the declared size), so this is the *ceiling* the tier pre-reserves.
    *
+   * MLX HTTP bridge: informational only — the server-side model's context
+   * is fixed at load time; this value is surfaced in token-budget telemetry.
+   *
    * Tier B → 8192 (fast 4B model; fits comfortably on 16 GB Mac)
    * Tier C → 32768 (7B model with ~2 GB KV cache at this size)
+   * Tier D → 16384 (14B model; Qwen3-14B-MLX-4bit default context)
    */
   numCtx?: number;
 }
@@ -97,6 +129,23 @@ export const DEFAULT_CONFIG: BridgeConfig = {
       // (pending map-reduce summarization as a separate feature).
       numCtx: 32768,
     },
+    // Tier D — 8B–14B MLX via oMLX (https://github.com/jundot/omlx).
+    // Promoted to active tier when eval confirms quality ≥4.0 / 95p <55 s.
+    // See docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md.
+    //
+    // NO mlxUrl set here: Tier D is intentionally unconfigured by default.
+    // Users who have oMLX running enable it by adding to their config:
+    //   { tiers: { D: { mlxUrl: "http://127.0.0.1:8000",
+    //                   mlxModelName: "Qwen3-8B-4bit" } } }
+    // A Tier-D tool call on an unconfigured bridge throws at runtime with
+    // a clear message.  Start oMLX with:
+    //   brew services start jundot/omlx/omlx
+    D: {
+      // 16384 tokens: balances quality (enough context for long tasks) vs
+      // KV-cache headroom on a 16 GB Mac.  Qwen3-8B-MLX-4bit at this
+      // context uses ~6-7 GB total; Qwen3-14B at 16K uses ~9-10 GB.
+      numCtx: 16384,
+    },
   },
   defaultTier: 'B',
   toolTierMap: {
@@ -105,6 +154,8 @@ export const DEFAULT_CONFIG: BridgeConfig = {
     // Same Tier C as summarize-long — chunked variant uses the same model,
     // just adds map-reduce orchestration on top.
     'summarize-long-chunked': 'C',
+    // Tier D tools are not assigned here by default — promoted post-eval.
+    // Uncomment and set toolTierMap overrides in user config after eval passes.
   },
 };
 
@@ -145,6 +196,10 @@ export function modelForTool(config: BridgeConfig, toolName: string): TierConfig
  * Always returns a non-empty string so footers/_meta never carry undefined.
  */
 export function tierModelLabel(tcfg: TierConfig): string {
+  if (tcfg.mlxUrl !== undefined) {
+    // MLX HTTP path: prefer explicit model name, fall back to URL.
+    return tcfg.mlxModelName ?? tcfg.mlxUrl;
+  }
   if (tcfg.modelPath !== undefined && tcfg.modelPath.length > 0) {
     return tcfg.modelPath.split('/').pop() ?? tcfg.modelPath;
   }
