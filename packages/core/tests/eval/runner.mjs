@@ -53,12 +53,13 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--model') out.model = argv[++i];
     else if (a === '--mlx-url') out.mlxUrl = argv[++i];
+    else if (a === '--mlx-model') out.mlxModel = argv[++i];
     else if (a === '--ctx') out.ctx = parseInt(argv[++i], 10);
     else if (a === '--tasks') out.tasks = argv[++i];
     else if (a === '--trials') out.trials = parseInt(argv[++i], 10);
     else if (a === '--help' || a === '-h') {
       console.log(
-        'runner.mjs (--model <gguf-path> | --mlx-url <url>) ' +
+        'runner.mjs (--model <gguf-path> | --mlx-url <url> [--mlx-model <name>]) ' +
         '[--ctx 16384] [--tasks all|01,03] [--trials 5]',
       );
       process.exit(0);
@@ -206,8 +207,12 @@ async function main() {
   // ── Create backend ────────────────────────────────────────────────────────
   let backend;
   if (args.mlxUrl) {
-    backend = new MlxHttpBackend({ baseUrl: args.mlxUrl, numCtx: args.ctx });
-    console.log(`[runner] backend=MLX url=${args.mlxUrl} ctx=${args.ctx}`);
+    backend = new MlxHttpBackend({
+      baseUrl: args.mlxUrl,
+      numCtx: args.ctx,
+      ...(args.mlxModel ? { modelName: args.mlxModel } : {}),
+    });
+    console.log(`[runner] backend=MLX url=${args.mlxUrl} model=${args.mlxModel ?? '(auto-detect)'} ctx=${args.ctx}`);
   } else {
     backend = new LlamaCppBackend({ modelPath: args.model, contextSize: args.ctx });
     console.log(`[runner] backend=llama.cpp model=${args.model} ctx=${args.ctx}`);
