@@ -29,6 +29,7 @@ exports[`migration snapshot — pre-migration baseline > classify: allow_multipl
   "keepAlive": "10m",
   "model": "qwen3:4b-instruct-2507-q4_K_M",
   "numCtx": 8192,
+  "numPredict": 200,
   "system": "You are a precise classifier. Given a text and a list of categories, assign the correct label(s) and reply with JSON matching the schema exactly. If a reason field is requested, write ONE brief sentence explaining your choice, in the same language as the source text.",
   "temperature": 0.1,
   "user": "A bug report covering login failures and missing validation.",
@@ -60,6 +61,7 @@ exports[`migration snapshot — pre-migration baseline > classify: single label,
   "keepAlive": "10m",
   "model": "qwen3:4b-instruct-2507-q4_K_M",
   "numCtx": 8192,
+  "numPredict": 200,
   "system": "You are a precise classifier. Given a text and a list of categories, assign the correct label(s) and reply with JSON matching the schema exactly. If a reason field is requested, write ONE brief sentence explaining your choice, in the same language as the source text.",
   "temperature": 0.1,
   "user": "I love this product, it works great.",
@@ -130,6 +132,7 @@ exports[`migration snapshot — pre-migration baseline > summarize: text + style
   "keepAlive": "10m",
   "model": "qwen3:4b-instruct-2507-q4_K_M",
   "numCtx": 8192,
+  "numPredict": 600,
   "system": "You are a precise summarizer. Produce a single-paragraph summary in plain prose. Do not editorialize. Do not add information not in the source. Match the language of the source text. If a style hint is provided, honor it (e.g. "one sentence", "for a non-technical reader", "bullet points").",
   "temperature": 0.2,
   "user": "Style: one sentence
@@ -144,6 +147,7 @@ exports[`migration snapshot — pre-migration baseline > summarize: text only, n
   "keepAlive": "10m",
   "model": "qwen3:4b-instruct-2507-q4_K_M",
   "numCtx": 8192,
+  "numPredict": 600,
   "system": "You are a precise summarizer. Produce a single-paragraph summary in plain prose. Do not editorialize. Do not add information not in the source. Match the language of the source text. If a style hint is provided, honor it (e.g. "one sentence", "for a non-technical reader", "bullet points").",
   "temperature": 0.2,
   "user": "Source:
@@ -156,6 +160,7 @@ exports[`migration snapshot — pre-migration baseline > summarize-long: text on
   "keepAlive": 300,
   "model": "qwen2.5:7b",
   "numCtx": 32768,
+  "numPredict": 1200,
   "system": "You are a careful summarizer of long documents. Produce a structured summary: first 1-2 sentences giving the core claim, then 3-6 short bullet points covering the supporting detail. Preserve the source language. Do not invent facts. If the source is very long, prioritize the opening, any explicit conclusion, and named entities / numbers. If the source is itself bullet-structured, collapse related bullets into themes — never mirror the source structure. Never exceed 6 bullets in the output regardless of source length.",
   "temperature": 0.2,
   "user": "Source:
@@ -168,6 +173,7 @@ exports[`migration snapshot — pre-migration baseline > transform: instruction 
   "keepAlive": "10m",
   "model": "qwen3:4b-instruct-2507-q4_K_M",
   "numCtx": 8192,
+  "numPredict": 1200,
   "system": "Apply the instruction to the text. Return ONLY the transformed text, with no commentary, no preamble, no explanation. Preserve the source language unless the instruction explicitly says otherwise.",
   "temperature": 0.3,
   "user": "Instruction: Translate to natural English prose, one sentence

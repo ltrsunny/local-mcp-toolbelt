@@ -133,6 +133,33 @@ const DIFF_INDEX_OUTPUT_SCHEMA = {
   ],
 };
 
+// ── Per-tool output budgets ────────────────────────────────────────────────
+//
+// Caps `maxOutputTokens` so models cannot generate runaway outputs.
+// Values are *semantic* — what the tool reasonably needs — not tier-driven.
+//
+// The 60s MCP wall-clock interacts with these as: budget × tier-decode-rate.
+// Tier B (qwen3:4b ~80 tps) and Tier C (qwen2.5:7b ~50 tps) clear all
+// budgets in <30 s.  Tier D (Qwen3-14B-MLX ~10-14 tps via oMLX) only fits
+// classify (200 tok ≈ 15 s) and extract/transform with shorter inputs.
+//
+// Empirically (eval run 20260507094102-mlx-8000), uncapped 14B emits:
+//   - summarize-long: 580 tok (85 s)   — exceeds 60 s wall already
+//   - classify:       666 tok (49 s)   — verbose; cap to 200
+//   - extract:       1456 tok (116 s)  — schema ignored; cap helps fail-fast
+//   - transform:      669 tok (59 s)   — natural ~ cap target
+//
+// Tools that need higher budgets at Tier D should NOT be on Tier D.
+// See docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md.
+const MAX_OUTPUT_TOKENS = {
+  summarize: 600,
+  'summarize-long': 1200,
+  classify: 200,
+  transform: 1200,
+  extract: 2048,
+  'diff-semantic-index': 1024,
+} as const;
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function toolCallError(err: unknown) {
@@ -233,8 +260,8 @@ export function buildBridgeServer(
   const defense = defendUntrusted ? new BridgeDefense() : null;
 
   const server = new McpServer({
-    name: options.name ?? 'ollama-mcp-bridge',
-    version: options.version ?? '0.1.2',
+    name: options.name ?? 'local-mcp',
+    version: options.version ?? '0.5.0',
   });
 
   // ── tool-handler capture (v0.3.0) ─────────────────────────────────────────
@@ -320,6 +347,7 @@ export function buildBridgeServer(
             user,
             temperature: 0.2,
             maxInputTokens: tierCfg.numCtx ?? 8192,
+            maxOutputTokens: MAX_OUTPUT_TOKENS.summarize,
           },
           extra.signal,
         );
@@ -329,7 +357,7 @@ export function buildBridgeServer(
           : undefined;
         const footerText = buildFooter({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens, savedTokensEstimate: savedInputTokensEstimate });
         const meta = buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, result, defender: defenderMeta, savedInputTokensEstimate });
-        if (source_uri) { meta['dev.ollamamcpbridge/source_uri'] = source_uri; meta['dev.ollamamcpbridge/source_bytes'] = src.bytes; }
+        if (source_uri) { meta['dev.localmcptoolbelt/source_uri'] = source_uri; meta['dev.localmcptoolbelt/source_bytes'] = src.bytes; }
         return {
           content: [
             { type: 'text' as const, text: result.text.trim() },
@@ -405,6 +433,7 @@ export function buildBridgeServer(
             user,
             temperature: 0.2,
             maxInputTokens: tierCfg.numCtx ?? 8192,
+            maxOutputTokens: MAX_OUTPUT_TOKENS['summarize-long'],
           },
           extra.signal,
         );
@@ -414,7 +443,7 @@ export function buildBridgeServer(
           : undefined;
         const footerText = buildFooter({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens, savedTokensEstimate: savedInputTokensEstimate });
         const meta = buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, result, defender: defenderMeta, savedInputTokensEstimate });
-        if (source_uri) { meta['dev.ollamamcpbridge/source_uri'] = source_uri; meta['dev.ollamamcpbridge/source_bytes'] = src.bytes; }
+        if (source_uri) { meta['dev.localmcptoolbelt/source_uri'] = source_uri; meta['dev.localmcptoolbelt/source_bytes'] = src.bytes; }
         return {
           content: [
             { type: 'text' as const, text: result.text.trim() },
@@ -540,8 +569,8 @@ export function buildBridgeServer(
           },
         });
         if (source_uri) {
-          meta['dev.ollamamcpbridge/source_uri'] = source_uri;
-          meta['dev.ollamamcpbridge/source_bytes'] = src.bytes;
+          meta['dev.localmcptoolbelt/source_uri'] = source_uri;
+          meta['dev.localmcptoolbelt/source_bytes'] = src.bytes;
         }
         return {
           content: [
@@ -624,6 +653,7 @@ export function buildBridgeServer(
             temperature: 0.1, // lower temp for classification
             maxInputTokens: tierCfg.numCtx ?? 8192,
             format: formatSchema,
+            maxOutputTokens: MAX_OUTPUT_TOKENS.classify,
           },
           extra.signal,
         );
@@ -720,7 +750,7 @@ export function buildBridgeServer(
             temperature: 0.2,
             maxInputTokens: tierCfg.numCtx ?? 8192,
             format: sanitized.schema,
-            maxOutputTokens: 2048,
+            maxOutputTokens: MAX_OUTPUT_TOKENS.extract,
           },
           extra.signal,
         );
@@ -739,7 +769,7 @@ export function buildBridgeServer(
           schemaStripped: sanitized.stripped,
           savedInputTokensEstimate,
         });
-        if (source_uri) { meta['dev.ollamamcpbridge/source_uri'] = source_uri; meta['dev.ollamamcpbridge/source_bytes'] = src.bytes; }
+        if (source_uri) { meta['dev.localmcptoolbelt/source_uri'] = source_uri; meta['dev.localmcptoolbelt/source_bytes'] = src.bytes; }
         return {
           content: [
             { type: 'text' as const, text: result.text },
@@ -815,6 +845,7 @@ export function buildBridgeServer(
             user: `Instruction: ${instruction}\n\nText:\n${safeText}`,
             temperature: 0.3,
             maxInputTokens: tierCfg.numCtx ?? 8192,
+            maxOutputTokens: MAX_OUTPUT_TOKENS.transform,
           },
           extra.signal,
         );
@@ -824,7 +855,7 @@ export function buildBridgeServer(
           : undefined;
         const footerText = buildFooter({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, promptTokens: result.promptTokens, completionTokens: result.completionTokens, savedTokensEstimate: savedInputTokensEstimate });
         const meta = buildMeta({ model: tierModelLabel(tierCfg), tier: tierKey, latencyMs, result, defender: defenderMeta, savedInputTokensEstimate });
-        if (source_uri) { meta['dev.ollamamcpbridge/source_uri'] = source_uri; meta['dev.ollamamcpbridge/source_bytes'] = src.bytes; }
+        if (source_uri) { meta['dev.localmcptoolbelt/source_uri'] = source_uri; meta['dev.localmcptoolbelt/source_bytes'] = src.bytes; }
         return {
           content: [
             { type: 'text' as const, text: result.text.trim() },
@@ -938,7 +969,7 @@ export function buildBridgeServer(
             temperature: 0.1,
             maxInputTokens: tierCfg.numCtx ?? 8192,
             format: sanitized.schema,
-            maxOutputTokens: 1024,
+            maxOutputTokens: MAX_OUTPUT_TOKENS['diff-semantic-index'],
           },
           extra.signal,
         );
@@ -988,8 +1019,8 @@ export function buildBridgeServer(
           defender: defenderMeta, savedInputTokensEstimate,
         });
         if (source_uri) {
-          meta['dev.ollamamcpbridge/source_uri'] = source_uri;
-          meta['dev.ollamamcpbridge/source_bytes'] = src.bytes;
+          meta['dev.localmcptoolbelt/source_uri'] = source_uri;
+          meta['dev.localmcptoolbelt/source_bytes'] = src.bytes;
         }
         return {
           content: [
@@ -1257,7 +1288,7 @@ export async function runBridgeServerStdio(
   // spawns the bridge process with no working directory set.
   const memoryDir =
     process.env['OMCP_MEMORY_DIR'] ??
-    `${process.env['HOME'] ?? process.cwd()}/.ollama-mcp-bridge/jobs`;
+    `${process.env['HOME'] ?? process.cwd()}/.local-mcp/jobs`;
   const jobStore = new JobStore({ baseDir: memoryDir });
   const jobRegistry = new JobRegistry(jobStore);
   const orphanReport = await jobRegistry.initialize();

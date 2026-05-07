@@ -39,6 +39,16 @@ const TRANSFORM_SYSTEM =
   'no commentary, no preamble, no explanation. Preserve the source language ' +
   'unless the instruction explicitly says otherwise.';
 
+// Per-tool maxOutputTokens — must mirror MAX_OUTPUT_TOKENS in src/mcp/server.ts
+// (see comments there for rationale and Tier-D math).
+const MAX_OUTPUT_TOKENS = {
+  summarize: 600,
+  'summarize-long': 1200,
+  classify: 200,
+  transform: 1200,
+  extract: 2048,
+};
+
 export async function invokeSummarize(backend, { text, style, maxInputTokens, signal }) {
   const user = style ? `Style: ${style}\n\nSource:\n${text}` : `Source:\n${text}`;
   return backend.chat({
@@ -46,6 +56,7 @@ export async function invokeSummarize(backend, { text, style, maxInputTokens, si
     user,
     temperature: 0.2,
     maxInputTokens,
+    maxOutputTokens: MAX_OUTPUT_TOKENS.summarize,
   }, signal);
 }
 
@@ -56,6 +67,7 @@ export async function invokeSummarizeLong(backend, { text, style, maxInputTokens
     user,
     temperature: 0.2,
     maxInputTokens,
+    maxOutputTokens: MAX_OUTPUT_TOKENS['summarize-long'],
   }, signal);
 }
 
@@ -74,6 +86,7 @@ export async function invokeClassify(backend, {
     temperature: 0.1,
     maxInputTokens,
     format: formatSchema,
+    maxOutputTokens: MAX_OUTPUT_TOKENS.classify,
   }, signal);
 }
 
@@ -84,7 +97,7 @@ export async function invokeExtract(backend, { text, schema, maxInputTokens, sig
     temperature: 0.2,
     maxInputTokens,
     format: schema,
-    maxOutputTokens: 2048,
+    maxOutputTokens: MAX_OUTPUT_TOKENS.extract,
   }, signal);
 }
 
@@ -94,6 +107,7 @@ export async function invokeTransform(backend, { text, instruction, maxInputToke
     user: `Instruction: ${instruction}\n\nText:\n${text}`,
     temperature: 0.3,
     maxInputTokens,
+    maxOutputTokens: MAX_OUTPUT_TOKENS.transform,
   }, signal);
 }
 

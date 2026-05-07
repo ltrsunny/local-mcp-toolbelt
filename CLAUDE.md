@@ -5,12 +5,12 @@ Highest priority context. Keep under 200 lines.
 
 ## What this project is
 
-`ollama-mcp-bridge` — Apache-2.0 Node 22+ MCP server. Lets any MCP client (Claude
+`local-mcp-toolbelt` — Apache-2.0 Node 22+ MCP server. Lets any MCP client (Claude
 Desktop, Cursor, Cline, OpenClaw, Zed, …) delegate lightweight tasks to a local
-Ollama daemon to save frontier tokens, stay private, and run offline.
+in-process llama.cpp model to save frontier tokens, stay private, and run offline.
 
 Monorepo: `packages/core/` is the publishable package. Shipped at v0.2.0;
-v0.3.0 in flight (see `docs/scope-memos/v0.3.0-decision-2026-04-27.md`).
+v0.5.0 current (rename from ollama-mcp-bridge; llama.cpp backend in v0.4.0).
 
 ## Tools currently exposed (6)
 
@@ -23,8 +23,38 @@ v0.3.0 in flight (see `docs/scope-memos/v0.3.0-decision-2026-04-27.md`).
 | `extract` | B | Grammar-constrained JSON Schema |
 | `transform` | B | Free-form rewrite |
 
-All four text tools accept `source_uri` (file:// or http(s)://) — preferred over
+All six tools accept `source_uri` (file:// or http(s)://) — preferred over
 inline `text` because raw bytes never enter the frontier context.
+
+## Tier system
+
+| Tier | Model | Backend | numCtx | Status |
+|---|---|---|---|---|
+| B | qwen3:4b Q4_K_M | llama.cpp in-process | 8192 | ✅ Active default |
+| C | qwen2.5:7b Q4_K_M | llama.cpp in-process | 32768 | ✅ Active (long-form) |
+| D | Qwen3-14B-MLX-4bit | oMLX HTTP (`brew services start jundot/omlx/omlx`) | 16384 | ⚙️ Opt-in (v0.5.0); ROUTABLE for `classify` + `transform` only |
+
+Tier D: configure `mlxUrl` + `mlxModelName` in TierConfig override; start oMLX
+with `brew services start jundot/omlx/omlx`. Eval (2026-05-07): 14B at ~12-16
+tok/s on 16 GB Mac → routable for short-output tools (classify ≤200 tok = 13s,
+transform ≤1200 tok = 46s). `summarize-long` and `extract` stay on Tier B/C —
+the 60 s wall and absent schema enforcement (oMLX `json_object` ≠ grammar)
+make Tier D unsuitable. See `docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md`
+§"Capped re-run".
+
+## Per-tool output caps (v0.5.0)
+
+`MAX_OUTPUT_TOKENS` in `src/mcp/server.ts` (mirrored in
+`tests/eval/lib/invoke.mjs`) — semantic ceilings, not tier-driven:
+
+| Tool | Cap | Note |
+|---|---|---|
+| `summarize` | 600 | 1-2 paragraphs |
+| `summarize-long` | 1200 | structured summary, ≤6 bullets |
+| `classify` | 200 | labels + brief reason |
+| `transform` | 1200 | instruction-driven |
+| `extract` | 2048 | schema-driven (kept) |
+| `diff-semantic-index` | 1024 | structured fields (kept) |
 
 ## Hard constraints (non-negotiable)
 
@@ -137,7 +167,7 @@ them in parallel and Claude synthesizes.
 
 | Tool | Niche |
 |---|---|
-| Bridge (`mcp__ollama-bridge__*`) | Structured `extract` / `classify` / `summarize` / `diff-semantic-index`. Small bounded calls. **Use first** — saves frontier without leaving local. |
+| Bridge (`mcp__local-mcp__*`) | Structured `extract` / `classify` / `summarize` / `diff-semantic-index`. Small bounded calls. **Use first** — saves frontier without leaving local. |
 | `gem` (Gemini 2.5 Pro, agentic) | Adversarial review, multi-file refactors, divergent web research. |
 | `copilot` (GitHub-context) | Cross-repo lookups, issue / PR context, GitHub-MCP tasks. 50 premium / month. |
 | `nv_sum` / `nv_pro` (Nvidia NIM) | Offload single-shot reasoning to a non-Claude / non-Gemini quota. |
