@@ -1,23 +1,18 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { detectHardware } from '../src/hardware/detect.js';
-import { fetchCatalog, CatalogFetchError } from '../src/models/catalog.js';
-import {
-  OllamaClient,
-  OllamaDaemonError,
-  DEFAULT_OLLAMA_HOST,
-} from '../src/ollama/client.js';
 import { runBridgeServerStdio } from '../src/mcp/server.js';
 import { DEFAULT_CONFIG, withOverrides } from '../src/config/tiers.js';
 
 const program = new Command();
 
 program
-  .name('ollama-mcp')
+  .name('local-mcp')
   .description(
-    'Inspect the bridge\'s view of your machine and the Ollama model catalog.',
+    'local-mcp-toolbelt — MCP server delegating to a local oMLX inference daemon. ' +
+      'Inspect hardware, manage tiers, and serve over stdio.',
   )
-  .version('0.1.0');
+  .version('0.5.0');
 
 program
   .command('hardware')
@@ -28,125 +23,56 @@ program
   });
 
 program
-  .command('catalog')
-  .description('Fetch the live ollama.com/library catalog.')
-  .option('--limit <n>', 'limit results', (v) => Number.parseInt(v, 10))
-  .option('--raw', 'print full JSON for every model', false)
-  .action(async (opts: { limit?: number; raw?: boolean }) => {
-    try {
-      const models = await fetchCatalog({ limit: opts.limit });
-      if (opts.raw) {
-        process.stdout.write(`${JSON.stringify(models, null, 2)}\n`);
-        return;
-      }
-      for (const m of models) {
-        const caps = m.capabilities.length ? ` [${m.capabilities.join(', ')}]` : '';
-        const sizes = m.sizes.length ? ` (${m.sizes.join(', ')})` : '';
-        process.stdout.write(
-          `${m.name}${caps}${sizes} — ${m.pullCount} pulls, ${m.tagCount} tags, updated ${m.updatedText}\n`,
-        );
-      }
-      process.stdout.write(`\n${models.length} models\n`);
-    } catch (err) {
-      if (err instanceof CatalogFetchError) {
-        process.stderr.write(`catalog: ${err.message}\n`);
-      } else {
-        process.stderr.write(`catalog: ${(err as Error).message}\n`);
-      }
-      process.exitCode = 1;
-    }
-  });
-
-program
-  .command('models')
-  .description('Show Ollama daemon status and installed models.')
-  .option(
-    '--host <url>',
-    'Ollama host (defaults to $OLLAMA_HOST env var, then http://127.0.0.1:11434)',
-    process.env['OLLAMA_HOST'] ?? DEFAULT_OLLAMA_HOST,
-  )
-  .action(async (opts: { host: string }) => {
-    const client = new OllamaClient(opts.host);
-    try {
-      const { version } = await client.ping();
-      const installed = await client.listInstalled();
-      process.stdout.write(`ollama daemon: v${version} at ${opts.host}\n`);
-      if (installed.length === 0) {
-        process.stdout.write(
-          `no models installed. try: ollama pull ${DEFAULT_CONFIG.tiers.B.model}\n`,
-        );
-        return;
-      }
-      for (const m of installed) {
-        const gb = (m.sizeBytes / 1024 ** 3).toFixed(1);
-        process.stdout.write(`${m.name}  ${gb} GB  (modified ${m.modifiedAt})\n`);
-      }
-    } catch (err) {
-      const msg =
-        err instanceof OllamaDaemonError ? err.message : (err as Error).message;
-      process.stderr.write(`models: ${msg}\n`);
-      process.exitCode = 1;
-    }
-  });
-
-program
   .command('serve')
   .description('Run the MCP bridge server over stdio (for MCP clients).')
   .option(
-    '--tier-b <name>',
-    'Ollama model tag for Tier B (deprecated: prefer --tier-b-path)',
-    process.env.OMCP_TIER_B ?? DEFAULT_CONFIG.tiers.B.model,
+    '--mlx-url <url>',
+    'oMLX endpoint shared by all tiers (default: http://127.0.0.1:8000)',
+    process.env.OMCP_MLX_URL,
   )
   .option(
-    '--tier-c <name>',
-    'Ollama model tag for Tier C (deprecated: prefer --tier-c-path)',
-    process.env.OMCP_TIER_C ?? DEFAULT_CONFIG.tiers.C.model,
+    '--tier-b-model <name>',
+    'oMLX model name for Tier B (default: Qwen3-8B-4bit)',
+    process.env.OMCP_TIER_B_MODEL,
   )
   .option(
-    '--tier-b-path <gguf>',
-    'GGUF file path for Tier B (llama.cpp backend; preferred over --tier-b)',
-    process.env.OMCP_TIER_B_PATH,
+    '--tier-c-model <name>',
+    'oMLX model name for Tier C (default: Qwen3-8B-4bit at 32 K ctx)',
+    process.env.OMCP_TIER_C_MODEL,
   )
   .option(
-    '--tier-c-path <gguf>',
-    'GGUF file path for Tier C (llama.cpp backend; preferred over --tier-c)',
-    process.env.OMCP_TIER_C_PATH,
-  )
-  .option(
-    '--host <url>',
-    'Ollama host (only used by Ollama-tier fallback; ignored when both tiers run on llama.cpp)',
-    process.env['OLLAMA_HOST'] ?? DEFAULT_OLLAMA_HOST,
+    '--tier-d-model <name>',
+    'oMLX model name for Tier D (default: Qwen3-14B-4bit)',
+    process.env.OMCP_TIER_D_MODEL,
   )
   .action(
     async (opts: {
-      tierB: string;
-      tierC: string;
-      tierBPath?: string;
-      tierCPath?: string;
-      host: string;
+      mlxUrl?: string;
+      tierBModel?: string;
+      tierCModel?: string;
+      tierDModel?: string;
     }) => {
-      // modelPath wins over the deprecated `model` (Ollama tag) when both
-      // are present. Cleared model field is the signal to backend-factory
-      // that this tier should use the llama.cpp backend.
-      const tierBOverride = opts.tierBPath
-        ? { modelPath: opts.tierBPath, model: undefined }
-        : { model: opts.tierB };
-      const tierCOverride = opts.tierCPath
-        ? { modelPath: opts.tierCPath, model: undefined }
-        : { model: opts.tierC };
+      const overrides: NonNullable<Parameters<typeof withOverrides>[1]>['tierOverrides'] = {};
+      const apply = (
+        tier: 'B' | 'C' | 'D',
+        modelName: string | undefined,
+      ): void => {
+        const o: Record<string, unknown> = {};
+        if (opts.mlxUrl) o['mlxUrl'] = opts.mlxUrl;
+        if (modelName) o['mlxModelName'] = modelName;
+        if (Object.keys(o).length > 0) {
+          overrides[tier] = o as Partial<typeof DEFAULT_CONFIG.tiers.B>;
+        }
+      };
+      apply('B', opts.tierBModel);
+      apply('C', opts.tierCModel);
+      apply('D', opts.tierDModel);
 
-      const config = withOverrides(DEFAULT_CONFIG, {
-        tierOverrides: {
-          B: tierBOverride as Partial<typeof DEFAULT_CONFIG.tiers.B>,
-          C: tierCOverride as Partial<typeof DEFAULT_CONFIG.tiers.C>,
-        },
-      });
+      const config = withOverrides(DEFAULT_CONFIG, { tierOverrides: overrides });
       try {
-        await runBridgeServerStdio({ config, ollamaHost: opts.host });
+        await runBridgeServerStdio({ config });
       } catch (err) {
-        const msg =
-          err instanceof OllamaDaemonError ? err.message : (err as Error).message;
-        process.stderr.write(`serve: ${msg}\n`);
+        process.stderr.write(`serve: ${(err as Error).message}\n`);
         process.exit(1);
       }
     },

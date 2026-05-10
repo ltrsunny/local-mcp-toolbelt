@@ -166,8 +166,18 @@ describe('MlxHttpBackend', () => {
 
     const body = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
-    ) as { response_format?: { type: string } };
-    expect(body.response_format).toEqual({ type: 'json_object' });
+    ) as {
+      response_format?: {
+        type: string;
+        json_schema?: { name: string; strict: boolean; schema: unknown };
+      };
+    };
+    expect(body.response_format?.type).toBe('json_schema');
+    expect(body.response_format?.json_schema?.strict).toBe(true);
+    expect(body.response_format?.json_schema?.schema).toEqual({
+      type: 'object',
+      properties: { label: { type: 'string' } },
+    });
   });
 
   it('passes maxOutputTokens as max_tokens', async () => {

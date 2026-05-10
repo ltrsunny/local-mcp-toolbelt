@@ -1,35 +1,35 @@
 /**
- * _meta emission for ollama-mcp-bridge tool responses.
+ * _meta emission for local-mcp-toolbelt tool responses.
  *
- * Keys are namespaced under the reverse-DNS prefix `dev.ollamamcpbridge/*`,
+ * Keys are namespaced under the reverse-DNS prefix `dev.localmcptoolbelt/*`,
  * matching the MCP SDK's own convention (`io.modelcontextprotocol/related-task`
  * in types.d.ts L6/L40). This avoids collision with future MCP spec additions
  * or other MCP servers mounted side-by-side.
  *
  * Always-emitted keys (every tool call):
- *   dev.ollamamcpbridge/model            — resolved Ollama model tag
- *   dev.ollamamcpbridge/tier             — tier key: "B" | "C"
- *   dev.ollamamcpbridge/latency_ms       — end-to-end wall-clock ms
- *   dev.ollamamcpbridge/prompt_tokens    — from Ollama prompt_eval_count
- *   dev.ollamamcpbridge/completion_tokens — from Ollama eval_count
+ *   dev.localmcptoolbelt/model            — resolved model id (llama-cpp:<file> or ollama:<tag>)
+ *   dev.localmcptoolbelt/tier             — tier key: "B" | "C"
+ *   dev.localmcptoolbelt/latency_ms       — end-to-end wall-clock ms
+ *   dev.localmcptoolbelt/prompt_tokens    — prompt token count
+ *   dev.localmcptoolbelt/completion_tokens — completion token count
  *
  * Conditional keys (set only when the relevant feature ran):
- *   dev.ollamamcpbridge/defender/tier    — "1" | "1+2" | "off"
- *   dev.ollamamcpbridge/defender/score   — Tier-2 float score (if ran)
- *   dev.ollamamcpbridge/defender/risk    — Tier-1 risk level (if flagged)
- *   dev.ollamamcpbridge/schema_validation — "passed" | "failed" (F2 only)
- *   dev.ollamamcpbridge/schema_stripped  — string[] of stripped constraints
- *   dev.ollamamcpbridge/saved_input_tokens_estimate
+ *   dev.localmcptoolbelt/defender/tier    — "1" | "1+2" | "off"
+ *   dev.localmcptoolbelt/defender/score   — Tier-2 float score (if ran)
+ *   dev.localmcptoolbelt/defender/risk    — Tier-1 risk level (if flagged)
+ *   dev.localmcptoolbelt/schema_validation — "passed" | "failed" (F2 only)
+ *   dev.localmcptoolbelt/schema_stripped  — string[] of stripped constraints
+ *   dev.localmcptoolbelt/saved_input_tokens_estimate
  *                                        — rough token savings estimate when
  *                                          source_uri was used (F5/F2).
  *                                          Formula: floor(sourceBytes/4) - completionTokens.
  *                                          Only present when source_uri was supplied.
  */
 
-import type { ChatResult } from '../ollama/client.js';
+import type { ChatResult } from '../llm/backend.js';
 import type { Tier } from '../config/tiers.js';
 
-export const META_NS = 'dev.ollamamcpbridge' as const;
+export const META_NS = 'dev.localmcptoolbelt' as const;
 
 /** Input for buildMeta(). Always-required fields + optional conditional ones. */
 export interface MetaInput {

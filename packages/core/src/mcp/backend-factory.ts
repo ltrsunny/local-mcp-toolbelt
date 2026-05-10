@@ -2,112 +2,64 @@
  * Backend factory — turns a (BridgeConfig, toolName) pair into a concrete
  * `LlmBackend` instance.
  *
- * v0.4.0: branches on which TierConfig field is set —
- *   - `modelPath`  → `LlamaCppBackend` (in-process llama.cpp; preferred)
- *   - `model`      → `OllamaBackend`   (deprecated; removed in v0.5.0)
+ * v0.5.0: single backend (`MlxHttpBackend`). All tiers route through a local
+ * oMLX server. The legacy Ollama and llama.cpp backends were removed in this
+ * release — see `docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md` and
+ * `docs/notes/v0.5.0-omlx-overlap-2026-05-07.md`.
  *
- * `LlamaCppBackend` instances are memoized per `modelPath` because model
- * load is expensive (Metal init + multi-GB mmap). The cache is process-wide
- * and lives until shutdown — a long-lived bridge process loads each tier's
- * model exactly once.
- *
- * `OllamaBackend` instances remain non-memoized: construction is cheap
- * (no resource bind), and `OllamaClient` is the shared object that holds
- * any per-process state.
+ * `MlxHttpBackend` instances are memoized per `(mlxUrl, mlxModelName)` so
+ * Tier B / C / D pointing at the same oMLX endpoint share the same backend
+ * instance. Construction is cheap (no connection held); the cache exists for
+ * API parity and to coalesce model-name auto-detection roundtrips.
  *
  * Tool handlers should call this once per invocation; the returned backend
- * is safe to use for that single call (and for the lifetime of the process,
- * for the LlamaCpp variant).
+ * is safe to use for that single call (and for the lifetime of the process).
  */
 
 import type { LlmBackend } from '../llm/backend.js';
-import { OllamaBackend } from '../llm/ollama-backend.js';
-import { LlamaCppBackend } from '../llm/llama-cpp-backend.js';
 import { MlxHttpBackend } from '../llm/mlx-http-backend.js';
-import type { OllamaClient } from '../ollama/client.js';
 import { type BridgeConfig, tierForTool } from '../config/tiers.js';
 
 /**
- * Process-wide cache of LlamaCppBackend instances, keyed by modelPath.
- * Each entry holds an open GGUF model + pre-allocated context for the
- * lifetime of the bridge process.
- */
-const llamaCppCache = new Map<string, LlamaCppBackend>();
-
-/**
- * Process-wide cache of MlxHttpBackend instances, keyed by base URL.
- * Construction is cheap (no connection held) but memoized for API parity
- * with LlamaCppBackend and to avoid constructing duplicate instances per
- * call.
+ * Process-wide cache of MlxHttpBackend instances, keyed by
+ * `${mlxUrl}::${mlxModelName ?? 'auto'}`. Different tiers pointing at the
+ * same (URL, model) pair share an instance.
  */
 const mlxHttpCache = new Map<string, MlxHttpBackend>();
 
 export function backendForTool(
-  client: OllamaClient,
   config: BridgeConfig,
   toolName: string,
 ): LlmBackend {
+  // Test injection: when a wildcard backend is installed, return it for any
+  // tier. Lets snapshot/integration tests capture all chat() calls without
+  // running oMLX.
+  const testBackend = _getTestBackend();
+  if (testBackend !== undefined) return testBackend;
+
   const tier = tierForTool(config, toolName);
   const tcfg = config.tiers[tier];
 
-  // Priority 1: MLX HTTP bridge (v0.5.0+, Tier D primary).
-  // Checked before modelPath so that a Tier-D config with both fields
-  // explicitly set prefers the MLX path.
-  if (tcfg.mlxUrl !== undefined) {
-    // Cache key includes model name (if set) so different model configs at
-    // the same URL get distinct backend instances with correct routing.
-    const cacheKey = tcfg.mlxModelName
-      ? `${tcfg.mlxUrl}::${tcfg.mlxModelName}`
-      : tcfg.mlxUrl;
-    let cached = mlxHttpCache.get(cacheKey);
-    if (cached === undefined) {
-      cached = new MlxHttpBackend({
-        baseUrl: tcfg.mlxUrl,
-        numCtx: tcfg.numCtx,
-        modelName: tcfg.mlxModelName,
-      });
-      mlxHttpCache.set(cacheKey, cached);
-    }
-    return cached;
+  if (tcfg.mlxUrl === undefined) {
+    throw new Error(
+      `Tier ${tier} has no mlxUrl configured (toolName: ${toolName}). ` +
+        `Set tiers.${tier}.mlxUrl to your oMLX endpoint, e.g. ` +
+        `"http://127.0.0.1:8000". Start oMLX with: ` +
+        `\`brew services start jundot/omlx/omlx\`.`,
+    );
   }
 
-  // Priority 2: in-process llama.cpp (preferred for Tier B/C; fallback for D).
-  // If both are present (migration window), modelPath wins over model.
-  if (tcfg.modelPath !== undefined) {
-    let cached = llamaCppCache.get(tcfg.modelPath);
-    if (cached === undefined) {
-      cached = new LlamaCppBackend({
-        modelPath: tcfg.modelPath,
-        contextSize: tcfg.numCtx ?? 8192,
-      });
-      llamaCppCache.set(tcfg.modelPath, cached);
-    }
-    return cached;
-  }
-
-  // Priority 3: Ollama (deprecated since v0.4.0, removed in v0.6.0).
-  if (tcfg.model !== undefined) {
-    return new OllamaBackend(client, {
-      modelTag: tcfg.model,
-      keepAlive: tcfg.keepAlive,
-      // `think` not currently surfaced in TierConfig.
+  const cacheKey = `${tcfg.mlxUrl}::${tcfg.mlxModelName ?? 'auto'}`;
+  let cached = mlxHttpCache.get(cacheKey);
+  if (cached === undefined) {
+    cached = new MlxHttpBackend({
+      baseUrl: tcfg.mlxUrl,
+      numCtx: tcfg.numCtx,
+      modelName: tcfg.mlxModelName,
     });
+    mlxHttpCache.set(cacheKey, cached);
   }
-
-  throw new Error(
-    `Tier ${tier} has neither mlxUrl, modelPath, nor model configured (toolName: ${toolName})`,
-  );
-}
-
-/**
- * Test-only: clear the LlamaCpp cache so a unit test can re-seed it.
- * Production code never calls this.
- */
-export function _resetLlamaCppCacheForTests(): void {
-  for (const inst of llamaCppCache.values()) {
-    void inst.dispose();
-  }
-  llamaCppCache.clear();
+  return cached;
 }
 
 /**
@@ -116,4 +68,24 @@ export function _resetLlamaCppCacheForTests(): void {
  */
 export function _resetMlxHttpCacheForTests(): void {
   mlxHttpCache.clear();
+}
+
+/**
+ * Test-only: install a test-double LlmBackend so every tier resolves to it
+ * regardless of (mlxUrl, mlxModelName). Use with RecorderBackend in
+ * migration-snapshot tests to capture all chat() calls without spinning up
+ * a real oMLX server. Production code never calls this.
+ *
+ * Implementation: registers the backend under all currently-cached keys AND
+ * monkey-patches a wildcard sentinel key so future cache lookups also return
+ * it. Reset via `_resetMlxHttpCacheForTests` between tests.
+ */
+const WILDCARD_KEY = '__test_wildcard__';
+export function _installTestBackend(backend: LlmBackend): void {
+  mlxHttpCache.set(WILDCARD_KEY, backend as MlxHttpBackend);
+}
+
+/** Internal: read the wildcard test backend, if installed. */
+function _getTestBackend(): LlmBackend | undefined {
+  return mlxHttpCache.get(WILDCARD_KEY);
 }

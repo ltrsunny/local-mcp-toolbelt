@@ -1,7 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { OllamaClient, OllamaDaemonError } from '../ollama/client.js';
 import {
   type BridgeConfig,
   DEFAULT_CONFIG,
@@ -27,7 +26,6 @@ import type { ProgressCaptureExtra } from '../jobs/progress-capture.js';
 export type CapturedToolHandler = (args: any, extra: ProgressCaptureExtra) => Promise<any>;
 
 export interface BridgeServerOptions {
-  ollamaHost?: string;
   config?: BridgeConfig;
   name?: string;
   version?: string;
@@ -163,10 +161,7 @@ const MAX_OUTPUT_TOKENS = {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function toolCallError(err: unknown) {
-  const msg =
-    err instanceof OllamaDaemonError
-      ? err.message
-      : `Ollama chat failed: ${(err as Error).message}`;
+  const msg = `Backend chat failed: ${(err as Error).message}`;
   return {
     isError: true as const,
     content: [{ type: 'text' as const, text: msg }],
@@ -252,7 +247,6 @@ async function resolveSource(
 // ── Server builder ──────────────────────────────────────────────────────────
 
 export function buildBridgeServer(
-  client: OllamaClient,
   options: BridgeServerOptions = {},
 ): McpServer {
   const config = options.config ?? DEFAULT_CONFIG;
@@ -340,7 +334,7 @@ export function buildBridgeServer(
         }
         await sendProgress(extra, 2, 3, 'generating…');
         const user = style ? `Style: ${style}\n\nSource:\n${safeText}` : `Source:\n${safeText}`;
-        const backend = backendForTool(client, config, 'summarize');
+        const backend = backendForTool(config, 'summarize');
         const result = await backend.chat(
           {
             system: systemPrompt,
@@ -426,7 +420,7 @@ export function buildBridgeServer(
         }
         await sendProgress(extra, 2, 3, 'generating…');
         const user = style ? `Style override: ${style}\n\nSource:\n${safeText}` : `Source:\n${safeText}`;
-        const backend = backendForTool(client, config, 'summarize-long');
+        const backend = backendForTool(config, 'summarize-long');
         const result = await backend.chat(
           {
             system: systemPrompt,
@@ -517,7 +511,7 @@ export function buildBridgeServer(
         const chunkSize = parseEnvInt('OMCP_CHUNK_SIZE');
         const chunkOverlap = parseEnvInt('OMCP_CHUNK_OVERLAP');
         const concurrency = parseEnvInt('OMCP_CHUNK_CONCURRENCY');
-        const backend = backendForTool(client, config, 'summarize-long-chunked');
+        const backend = backendForTool(config, 'summarize-long-chunked');
         const result = await chunkedSummarize({
           source: src.text,
           style,
@@ -645,7 +639,7 @@ export function buildBridgeServer(
           : { type: 'object', properties: { labels: labelsSchema }, required: ['labels'] };
 
         await sendProgress(extra, 2, 3, 'generating…');
-        const backend = backendForTool(client, config, 'classify');
+        const backend = backendForTool(config, 'classify');
         const result = await backend.chat(
           {
             system: systemPrompt,
@@ -742,7 +736,7 @@ export function buildBridgeServer(
           systemPrompt = dResult.systemPrefix + '\n\n' + EXTRACT_SYSTEM;
         }
         await sendProgress(extra, 2, 3, 'generating…');
-        const backend = backendForTool(client, config, 'extract');
+        const backend = backendForTool(config, 'extract');
         const result = await backend.chat(
           {
             system: systemPrompt,
@@ -838,7 +832,7 @@ export function buildBridgeServer(
           systemPrompt = dResult.systemPrefix + '\n\n' + TRANSFORM_SYSTEM;
         }
         await sendProgress(extra, 2, 3, 'generating…');
-        const backend = backendForTool(client, config, 'transform');
+        const backend = backendForTool(config, 'transform');
         const result = await backend.chat(
           {
             system: systemPrompt,
@@ -957,7 +951,7 @@ export function buildBridgeServer(
             content: [{ type: 'text' as const, text: `Internal schema error: ${sanitized.reason}` }],
           };
         }
-        const backend = backendForTool(client, config, 'diff-semantic-index');
+        const backend = backendForTool(config, 'diff-semantic-index');
         const result = await backend.chat(
           {
             system: systemPrompt,
@@ -1264,16 +1258,11 @@ export function buildBridgeServer(
 export async function runBridgeServerStdio(
   options: BridgeServerOptions = {},
 ): Promise<void> {
-  // Lazy connection: do NOT ping Ollama at startup. If we did and Ollama
-  // isn't yet running (common after a reboot, since the macOS Ollama app
-  // takes a few seconds to come up), the bridge subprocess would crash
-  // before registering with MCP — and the client would just see "load
-  // failed" with no actionable signal. Instead, the bridge always
-  // registers cleanly; if a tool is invoked before Ollama is reachable,
-  // the underlying OllamaClient.chat() raises OllamaDaemonError with
-  // an actionable message, which `toolCallError` surfaces to the
-  // calling LLM as `isError: true`.
-  const client = new OllamaClient(options.ollamaHost);
+  // Lazy connection: the bridge does NOT ping the oMLX server at startup.
+  // If oMLX isn't running yet, tool invocations surface a clear error via
+  // MlxHttpBackend's fetch failure path; the bridge process itself stays
+  // up so MCP clients can list tools and retry once the user starts oMLX
+  // (`brew services start jundot/omlx/omlx`).
 
   // ── v0.3.0 async-job machinery ────────────────────────────────────────────
   // Construct store + registry + runner before the server so they can be
@@ -1318,7 +1307,7 @@ export async function runBridgeServerStdio(
     { concurrency: parseEnvInt('OMCP_JOB_CONCURRENCY') ?? 1 },
   );
 
-  const server = buildBridgeServer(client, {
+  const server = buildBridgeServer({
     ...options,
     jobRegistry,
     jobRunner,

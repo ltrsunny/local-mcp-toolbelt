@@ -14,16 +14,20 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { buildBridgeServer, type CapturedToolHandler } from '../../src/mcp/server.js';
+import {
+  _installTestBackend,
+  _resetMlxHttpCacheForTests,
+} from '../../src/mcp/backend-factory.js';
 import { JobStore } from '../../src/jobs/store.js';
 import { JobRegistry } from '../../src/jobs/registry.js';
 import { JobRunner } from '../../src/jobs/runner.js';
-import { RecorderClient } from './recorder-client.js';
+import { RecorderBackend } from './recorder-client.js';
 
 let tmpDir: string;
 let store: JobStore;
 let registry: JobRegistry;
 let runner: JobRunner;
-let recorderClient: RecorderClient;
+let recorderBackend: RecorderBackend;
 let client: Client;
 
 beforeEach(async () => {
@@ -48,8 +52,10 @@ beforeEach(async () => {
     { concurrency: 1 },
   );
 
-  recorderClient = new RecorderClient('http://recorder.invalid');
-  const server = buildBridgeServer(recorderClient, {
+  _resetMlxHttpCacheForTests();
+  recorderBackend = new RecorderBackend();
+  _installTestBackend(recorderBackend);
+  const server = buildBridgeServer({
     defendUntrusted: false,
     jobRegistry: registry,
     jobRunner: runner,

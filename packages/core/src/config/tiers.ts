@@ -5,92 +5,54 @@
  * size/latency buckets, not capability buckets — the tool decides which
  * tier it wants based on expected workload (short classify vs long summary).
  *
- * The default set of models comes from the audit trail in the project notes:
- * - Tier B (primary) = qwen3:4b-instruct-2507-q4_K_M
- *   Chosen because it is the only commercially-licensed (Apache 2.0),
- *   Chinese-capable, native-tool-calling, non-thinking 3-4B model on
- *   ollama.com as of 2026-04. Bare `qwen3:4b` is a separate hybrid-reasoning
- *   model whose thinking mode cannot be disabled reliably — do NOT substitute.
- * - Tier C (optional) = qwen2.5:7b
- *   Apache 2.0, Chinese explicitly listed on the Ollama library page,
- *   ~4.7 GB weights, fits 16 GB Macs comfortably for long-form summarize.
+ * v0.5.0: ALL tiers route through `MlxHttpBackend` to a local oMLX
+ * (https://github.com/jundot/omlx) inference server. Single backend, single
+ * inference engine, KV-cache persistence across requests, schema strictness
+ * via OpenAI Structured Outputs (`response_format: { type: "json_schema",
+ * strict: true }`). The legacy Ollama and llama.cpp backends were removed.
  *
- * Users who only touch English content can opt into `llama3.2:3b` as Tier B,
- * which Ollama's library page literally recommends for "Summarization,
- * Prompt rewriting, Tool use".
+ * Default models (mlx-community on Hugging Face):
+ * - Tier B + C: `Qwen3-8B-4bit`  (~5 GB) — single weights, two numCtx
+ *   (B at 8 192, C at 32 768). oMLX loads the model once; numCtx is a
+ *   per-request parameter (informational), so reusing the same model name
+ *   across tiers does NOT collide the way `LlamaCppBackend.modelPath`-keyed
+ *   cache would. Eval (2026-05-07) showed 8B at ~20-24 tok/s clears all
+ *   B/C tools within 60 s when MAX_OUTPUT_TOKENS caps are honored.
+ * - Tier D:     `Qwen3-14B-4bit` (~8 GB) — hardest tasks (classify subtle,
+ *   transform on dense input). 16 K context.
+ *
+ * All Apache-2.0. Download into `~/.omlx/models/<dirname>` via:
+ *   npm run download-models
+ * Start oMLX:
+ *   brew services start jundot/omlx/omlx
  */
 
 export type Tier = 'B' | 'C' | 'D';
 
 export interface TierConfig {
   /**
-   * Ollama model tag, e.g. "qwen3:4b-instruct-2507-q4_K_M".
-   *
-   * @deprecated since v0.4.0 — use `modelPath` for the llama.cpp backend.
-   * Ollama itself is being removed (see
-   * `docs/scope-memos/v0.4.0-llama-cpp-backend-2026-05-04.md` for the ethical
-   * rationale per https://sleepingrobots.com/dreams/stop-using-ollama/). The
-   * field is retained for one minor version so externally-managed configs
-   * don't break on upgrade. Removal in v0.5.0.
-   */
-  model?: string;
-  /**
-   * Absolute path to a GGUF file consumed by the llama.cpp backend (v0.4.0+).
-   * Either `modelPath` or the deprecated `model` MUST be set; if both are
-   * present, `modelPath` wins.
-   */
-  modelPath?: string;
-  /**
-   * Ollama `keep_alive` parameter. Number = seconds, string = duration,
-   * `-1` = forever. Ignored by the llama.cpp backend (model stays loaded
-   * for the bridge process lifetime).
-   */
-  keepAlive?: string | number;
-  /**
-   * Base URL of an MLX-compatible HTTP inference server (v0.5.0+).
-   *
-   * When set, `MlxHttpBackend` is used for this tier, calling the
-   * OpenAI-compatible `/v1/chat/completions` endpoint at this URL.
-   * Takes precedence over `modelPath` when both are set.
-   *
-   * Tested with oMLX (https://github.com/jundot/omlx), which exposes an
-   * Anthropic-compatible + OpenAI-compatible API with KV-cache persistence.
-   * Also works with any server exposing `/v1/chat/completions`.
-   *
-   * Example: `"http://127.0.0.1:8000"`
-   *
-   * See `docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md` §D3.
+   * Base URL of the oMLX (or any OpenAI-compatible) inference server.
+   * Default: `"http://127.0.0.1:8000"` (oMLX's default port).
    */
   mlxUrl?: string;
   /**
-   * Model name sent in the OpenAI `model` field (v0.5.0+).
+   * Model name sent in the OpenAI `model` field — must match a directory name
+   * under `~/.omlx/models/`. oMLX serves multiple models from one process and
+   * routes requests by this name.
    *
-   * Required for multi-model servers (oMLX routes by name). When omitted,
-   * `MlxHttpBackend` auto-detects the first model from `GET /v1/models`.
-   * Set explicitly to avoid the extra round-trip or to pin a specific model.
-   *
-   * Example: `"Qwen3-8B-4bit"` (must match the directory name under
-   * `~/.omlx/models/` for oMLX).
+   * Example: `"Qwen3-4B-Instruct-2507-4bit"`
    */
   mlxModelName?: string;
-
   /**
    * Context window size in tokens.
    *
-   * Ollama: maps to `num_ctx`; runtime default is 4096 regardless of the
-   * model's maximum. Without this field the model silently left-truncates
-   * inputs that exceed 4096 tokens. Set explicitly per tier to prevent
-   * data loss.
+   * Informational for `MlxHttpBackend` — the server-side model's max context
+   * is fixed at load time. Used for the chunker's safety margin and tool
+   * `maxInputTokens`.
    *
-   * llama.cpp: fixed at context-creation time (KV cache pre-allocated for
-   * the declared size), so this is the *ceiling* the tier pre-reserves.
-   *
-   * MLX HTTP bridge: informational only — the server-side model's context
-   * is fixed at load time; this value is surfaced in token-budget telemetry.
-   *
-   * Tier B → 8192 (fast 4B model; fits comfortably on 16 GB Mac)
-   * Tier C → 32768 (7B model with ~2 GB KV cache at this size)
-   * Tier D → 16384 (14B model; Qwen3-14B-MLX-4bit default context)
+   * Tier B → 8192   (fast 4B model)
+   * Tier C → 32768  (8B model with longer context)
+   * Tier D → 16384  (14B model; ~9-10 GB at this context size)
    */
   numCtx?: number;
 }
@@ -103,47 +65,36 @@ export interface BridgeConfig {
   toolTierMap?: Record<string, Tier>;
 }
 
+/** Default oMLX endpoint (LAN unreachable, localhost only). */
+const DEFAULT_MLX_URL = 'http://127.0.0.1:8000';
+
 export const DEFAULT_CONFIG: BridgeConfig = {
   tiers: {
     B: {
-      model: 'qwen3:4b-instruct-2507-q4_K_M',
-      // 10 minutes idle: on a 16 GB Mac, -1 (forever) pins ~3.5 GB VRAM even
-      // when the bridge is quiet. 10 min trades one cold start per idle hour
-      // for headroom; tighten via OMCP_TIER_B_KEEPALIVE if the host is roomy.
-      keepAlive: '10m',
-      // 8192 tokens: doubles the default 4096 without stressing VRAM on 16 GB
-      // Macs (~0.5 GB additional KV-cache for qwen3:4b at Q4_K_M).
+      mlxUrl: DEFAULT_MLX_URL,
+      // Qwen3-8B (Apache-2.0). 4-bit MLX ≈ 5 GB resident. Same weights as
+      // Tier C — oMLX serves both at numCtx=8192 (here) and numCtx=32768 (C)
+      // with no duplicate load. Capped per-tool budgets keep B latencies
+      // <30 s (classify=200 tok @ ~24 tps = 8 s; summarize=600 tok = 25 s).
+      mlxModelName: 'Qwen3-8B-4bit',
       numCtx: 8192,
     },
     C: {
-      // 5 minutes idle — Tier C is explicitly on-demand; no reason to hold
-      // the larger weights when the long-summarize tool isn't being called.
-      model: 'qwen2.5:7b',
-      keepAlive: 300,
-      // 32768 tokens: supports ~25 000-word documents. On a 16 GB Mac the
-      // qwen2.5:7b Q4_K_M model uses ~4.7 GB weights + ~2 GB KV-cache at
-      // this context size — total ~6.7 GB, measured via diag-long-input.mjs
-      // on 2026-04-24 (no OOM, 223 s wall time for a 32 K-token input +
-      // 100-token output). Callers with MCP request timeouts below ~300 s
-      // will need to raise them; longer documents still truncate silently
-      // (pending map-reduce summarization as a separate feature).
+      mlxUrl: DEFAULT_MLX_URL,
+      // Same Qwen3-8B as Tier B — long-form summarize over ~25 000 words at
+      // numCtx=32768. KV cache fills ~3-4 GB at this context size; total RAM
+      // ~8-9 GB on a 16 GB Mac. Fits when Tier D (14B) is not also loaded.
+      mlxModelName: 'Qwen3-8B-4bit',
       numCtx: 32768,
     },
-    // Tier D — 8B–14B MLX via oMLX (https://github.com/jundot/omlx).
-    // Promoted to active tier when eval confirms quality ≥4.0 / 95p <55 s.
-    // See docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md.
-    //
-    // NO mlxUrl set here: Tier D is intentionally unconfigured by default.
-    // Users who have oMLX running enable it by adding to their config:
-    //   { tiers: { D: { mlxUrl: "http://127.0.0.1:8000",
-    //                   mlxModelName: "Qwen3-8B-4bit" } } }
-    // A Tier-D tool call on an unconfigured bridge throws at runtime with
-    // a clear message.  Start oMLX with:
-    //   brew services start jundot/omlx/omlx
     D: {
-      // 16384 tokens: balances quality (enough context for long tasks) vs
-      // KV-cache headroom on a 16 GB Mac.  Qwen3-8B-MLX-4bit at this
-      // context uses ~6-7 GB total; Qwen3-14B at 16K uses ~9-10 GB.
+      mlxUrl: DEFAULT_MLX_URL,
+      // Qwen3-14B (Apache-2.0). 4-bit MLX ≈ 8 GB resident. For hardest tasks
+      // (transform on dense input, classify on subtle distinctions). At
+      // numCtx=16384 with 14B + KV: ~9-10 GB total. Cannot run alongside C
+      // (8B) on a 16 GB Mac without swapping; users typically configure
+      // toolTierMap so only one of C/D is hot per session.
+      mlxModelName: 'Qwen3-14B-4bit',
       numCtx: 16384,
     },
   },
@@ -154,8 +105,13 @@ export const DEFAULT_CONFIG: BridgeConfig = {
     // Same Tier C as summarize-long — chunked variant uses the same model,
     // just adds map-reduce orchestration on top.
     'summarize-long-chunked': 'C',
-    // Tier D tools are not assigned here by default — promoted post-eval.
-    // Uncomment and set toolTierMap overrides in user config after eval passes.
+    // Tier D promotion (per docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md):
+    // - classify and transform are routable to D (verified 14B in ≤55s with
+    //   MAX_OUTPUT_TOKENS caps).
+    // - summarize-long and extract stay on B/C — output-token budgets exceed
+    //   the 60 s wall on 14B even with caps.
+    // Default keeps classify+transform on B for predictable latency; users who
+    // have oMLX 14B loaded can override to D in their own config.
   },
 };
 
@@ -191,17 +147,16 @@ export function modelForTool(config: BridgeConfig, toolName: string): TierConfig
 }
 
 /**
- * Display/telemetry identifier for a tier. Prefers the GGUF filename when
- * `modelPath` is set; otherwise falls back to the deprecated Ollama tag.
- * Always returns a non-empty string so footers/_meta never carry undefined.
+ * Display/telemetry identifier for a tier. Prefers the explicit model name
+ * when set; falls back to the URL. Always returns a non-empty string so
+ * footers/_meta never carry undefined.
  */
 export function tierModelLabel(tcfg: TierConfig): string {
-  if (tcfg.mlxUrl !== undefined) {
-    // MLX HTTP path: prefer explicit model name, fall back to URL.
-    return tcfg.mlxModelName ?? tcfg.mlxUrl;
+  if (tcfg.mlxModelName !== undefined && tcfg.mlxModelName.length > 0) {
+    return tcfg.mlxModelName;
   }
-  if (tcfg.modelPath !== undefined && tcfg.modelPath.length > 0) {
-    return tcfg.modelPath.split('/').pop() ?? tcfg.modelPath;
+  if (tcfg.mlxUrl !== undefined && tcfg.mlxUrl.length > 0) {
+    return tcfg.mlxUrl;
   }
-  return tcfg.model ?? 'unconfigured';
+  return 'unconfigured';
 }

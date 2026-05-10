@@ -7,40 +7,44 @@ Highest priority context. Keep under 200 lines.
 
 `local-mcp-toolbelt` — Apache-2.0 Node 22+ MCP server. Lets any MCP client (Claude
 Desktop, Cursor, Cline, OpenClaw, Zed, …) delegate lightweight tasks to a local
-in-process llama.cpp model to save frontier tokens, stay private, and run offline.
+oMLX inference server to save frontier tokens, stay private, and run offline.
 
 Monorepo: `packages/core/` is the publishable package. Shipped at v0.2.0;
-v0.5.0 current (rename from ollama-mcp-bridge; llama.cpp backend in v0.4.0).
+v0.5.0 current (rename from ollama-mcp-bridge; Ollama and llama.cpp backends
+removed in this release in favor of a single oMLX/MlxHttpBackend path).
 
 ## Tools currently exposed (6)
 
 | Tool | Tier | Notes |
 |---|---|---|
-| `summarize` | B (qwen3:4b) | Up to ~2 K words |
-| `summarize-long` | C (qwen2.5:7b, num_ctx=32 K) | Up to ~25 K words single-call |
+| `summarize` | B | Up to ~2 K words |
+| `summarize-long` | C (numCtx=32 K) | Up to ~25 K words single-call |
 | `summarize-long-chunked` | C | Map-reduce; full chunking only reachable from clients with > 60 s timeout |
-| `classify` | B | Grammar-constrained labels |
-| `extract` | B | Grammar-constrained JSON Schema |
+| `classify` | B | Strict-schema enum labels via oMLX json_schema |
+| `extract` | B | Strict-schema JSON via oMLX json_schema |
 | `transform` | B | Free-form rewrite |
 
 All six tools accept `source_uri` (file:// or http(s)://) — preferred over
 inline `text` because raw bytes never enter the frontier context.
 
-## Tier system
+## Tier system (v0.5.0: all oMLX)
 
-| Tier | Model | Backend | numCtx | Status |
-|---|---|---|---|---|
-| B | qwen3:4b Q4_K_M | llama.cpp in-process | 8192 | ✅ Active default |
-| C | qwen2.5:7b Q4_K_M | llama.cpp in-process | 32768 | ✅ Active (long-form) |
-| D | Qwen3-14B-MLX-4bit | oMLX HTTP (`brew services start jundot/omlx/omlx`) | 16384 | ⚙️ Opt-in (v0.5.0); ROUTABLE for `classify` + `transform` only |
+| Tier | Model | numCtx | Status |
+|---|---|---|---|
+| B | Qwen3-8B-4bit | 8192 | ✅ default — short tasks |
+| C | Qwen3-8B-4bit (same weights, longer ctx) | 32768 | ✅ long-form summarize |
+| D | Qwen3-14B-4bit | 16384 | ⚙️ Opt-in for classify + transform; toolTierMap override required |
 
-Tier D: configure `mlxUrl` + `mlxModelName` in TierConfig override; start oMLX
-with `brew services start jundot/omlx/omlx`. Eval (2026-05-07): 14B at ~12-16
-tok/s on 16 GB Mac → routable for short-output tools (classify ≤200 tok = 13s,
-transform ≤1200 tok = 46s). `summarize-long` and `extract` stay on Tier B/C —
-the 60 s wall and absent schema enforcement (oMLX `json_object` ≠ grammar)
-make Tier D unsuitable. See `docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md`
-§"Capped re-run".
+Single backend = `MlxHttpBackend` against `http://127.0.0.1:8000` (oMLX).
+Start oMLX:        `brew services start jundot/omlx/omlx`
+Download weights:  `npm run download-models` (uses oMLX's bundled Python).
+
+oMLX json_schema strict mode (verified 2026-05-07) replaces llama.cpp's GBNF
+grammar — enum constraints and required fields are enforced at decode time.
+Eval (2026-05-07): 14B at ~12-16 tok/s on 16 GB Mac → routable for short-output
+tools (classify ≤200 tok = 13s, transform ≤1200 tok = 46s). `summarize-long`
+and `extract` stay on B/C because long completion budgets exceed 60 s on 14B.
+See `docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md` §"Capped re-run".
 
 ## Per-tool output caps (v0.5.0)
 
@@ -61,8 +65,9 @@ make Tier D unsuitable. See `docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md`
 - **Claude Code MCP request timeout is a hardcoded ~60 s wall-clock.** Cannot be
   raised via `settings.json` or any documented env var. Per-call must stay
   under this wall. v0.3.0's async-job pattern is the structural fix.
-- **16 GB Mac is the dev hardware**. Ollama serializes on Metal so concurrent
-  calls add queueing, not parallelism. Tier C `num_ctx=32768` uses ~6.7 GB total.
+- **16 GB Mac is the dev hardware**. oMLX serializes generation on Metal so
+  concurrent calls queue, not parallelize. 8B + 14B simultaneously ≈ 13 GB
+  resident — usable but tight; one tier hot per session is the norm.
 - **Apache-2.0 license**. New deps must be permissive (Apache / MIT / BSD / ISC).
   Workspace-root `overrides.uuid` ^14 keeps `npm audit` clean.
 - **Node 22+, TypeScript strict, vitest, raw `tsc` build (no bundler)**. Unpacked
@@ -72,23 +77,24 @@ make Tier D unsuitable. See `docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md`
 
 - `LlmBackend` interface (`src/llm/backend.ts`) — neutral contract: `chat`,
   `countTokens`, `ping`. AbortSignal threads through `chat`.
-- `OllamaBackend` is the only current implementation.
-- `backendForTool(client, config, toolName)` resolves tier → backend instance.
-- All 5 v0.1.x tools migrated to call `backendForTool(...).chat()` not
-  `client.chat()` directly. `migration-snapshot.test.ts` is the byte-identical
-  guard against migration regressions.
+- `MlxHttpBackend` (`src/llm/mlx-http-backend.ts`) — the only implementation
+  in v0.5.0. Speaks OpenAI-compatible HTTP to oMLX; uses `response_format:
+  {type: "json_schema", strict: true}` for grammar enforcement.
+- `backendForTool(config, toolName)` resolves tier → memoized MlxHttpBackend
+  instance keyed by `(mlxUrl, mlxModelName)`.
+- All tools call `backendForTool(...).chat()`. `migration-snapshot.test.ts`
+  captures the deterministic ChatOptions payload per tool as the contract.
 - Chunking: `src/chunking/{prompts,split,map-reduce}.ts` + `p-limit` for
   bounded fan-out. Each per-call timeout is `AbortSignal.any([jobSignal,
   AbortSignal.timeout(50_000)])`.
 
 ## Testing layout
 
-- `npm test` (in `packages/core/`) → 59 unit tests via vitest. Pure in-process,
-  no Ollama required. Runs in CI.
-- `node tests/smoke-bridge.mjs` → 58 Tier-2 smoke checks against a real Ollama
-  daemon. Excluded from CI (needs models). Run locally before any release.
+- `npm test` (in `packages/core/`) → 147 unit tests via vitest. Pure in-process,
+  no oMLX required (all backend calls go through a `RecorderBackend` test
+  double via `_installTestBackend`). Runs in CI.
 - `node tests/probe-numctx.mjs` and `tests/diag-long-input.mjs` are diagnostic
-  scripts for failure-mode investigation.
+  scripts for failure-mode investigation against a real oMLX server.
 
 ## Process expectations (feature-intake-rule)
 

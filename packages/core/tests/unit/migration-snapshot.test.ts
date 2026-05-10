@@ -32,18 +32,25 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { buildBridgeServer } from '../../src/mcp/server.js';
-import { RecorderClient } from './recorder-client.js';
+import {
+  _installTestBackend,
+  _resetMlxHttpCacheForTests,
+} from '../../src/mcp/backend-factory.js';
+import { RecorderBackend } from './recorder-client.js';
 
 /**
  * Build a fully-connected (bridge server, MCP test client) pair backed by
- * a fresh RecorderClient. Defender is disabled so prompts are deterministic.
+ * a fresh RecorderBackend. Defender is disabled so prompts are deterministic.
  */
 async function makeBridge(): Promise<{
-  recorder: RecorderClient;
+  recorder: RecorderBackend;
   client: Client;
 }> {
-  const recorder = new RecorderClient('http://recorder.invalid');
-  const server = buildBridgeServer(recorder, { defendUntrusted: false });
+  _resetMlxHttpCacheForTests();
+  const recorder = new RecorderBackend();
+  _installTestBackend(recorder);
+
+  const server = buildBridgeServer({ defendUntrusted: false });
 
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -55,7 +62,7 @@ async function makeBridge(): Promise<{
 }
 
 describe('migration snapshot — pre-migration baseline', () => {
-  let recorder: RecorderClient;
+  let recorder: RecorderBackend;
   let client: Client;
 
   beforeEach(async () => {

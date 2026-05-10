@@ -1,13 +1,13 @@
 {
-  "name": "ollama-mcp-bridge",
-  "version": "0.3.0",
-  "description": "Universal MCP server that bridges any MCP client (Claude Desktop, Cursor, Cline, Zed, etc.) to a local Ollama instance, so the assistant can delegate lightweight tasks to a local model and save tokens.",
+  "name": "local-mcp-toolbelt",
+  "version": "0.5.0",
+  "description": "Local-first MCP toolbelt: delegates summarise/classify/extract/transform tasks from any MCP client to a local oMLX inference server. Apple Silicon, MLX-accelerated, KV-cache persistent.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/src/lib.js",
   "types": "./dist/src/lib.d.ts",
   "bin": {
-    "ollama-mcp": "./dist/bin/cli.js"
+    "local-mcp": "./dist/bin/cli.js"
   },
   "exports": {
     ".": {
@@ -21,6 +21,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rm -rf dist",
+    "download-models": "node scripts/download-models.mjs",
     "prepublishOnly": "npm run build && npm test && node tests/check-version-sync.mjs"
   },
   "engines": {
@@ -35,8 +36,10 @@
   "keywords": [
     "mcp",
     "model-context-protocol",
-    "ollama",
     "local-llm",
+    "mlx",
+    "omlx",
+    "apple-silicon",
     "ai-delegation",
     "claude",
     "cursor",
@@ -51,8 +54,6 @@
     "commander": "^14.0.3",
     "js-tiktoken": "^1.0.21",
     "nanoid": "^5.1.9",
-    "node-llama-cpp": "^3.18.1",
-    "ollama": "^0.6.3",
     "p-limit": "^7.3.0",
     "p-queue": "^9.2.0",
     "parse-diff": "^0.12.0",

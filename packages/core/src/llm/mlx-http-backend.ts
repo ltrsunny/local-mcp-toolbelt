@@ -22,10 +22,11 @@
  * chunker applies a safety margin on top of proxy counts, so this is safe.
  *
  * Grammar-constrained output: when `opts.format` (JSON Schema) is set,
- * the backend sends `response_format: { type: "json_object" }` to the
- * server as a best-effort hint. The model may not strictly respect the
- * schema — evaluate quality via the eval harness before promoting
- * classify/extract tools to Tier D.
+ * the backend sends `response_format: { type: "json_schema", strict: true }`.
+ * oMLX enforces the schema at decode time (verified 2026-05-07: enum
+ * constraints binding, required fields produced) — equivalent to llama.cpp's
+ * GBNF grammar. This is what makes oMLX viable as the unified backend for
+ * classify and extract tools.
  *
  * See: docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md
  */
@@ -61,7 +62,16 @@ interface OpenAIChatRequest {
   messages: Array<{ role: string; content: string }>;
   max_tokens?: number;
   temperature?: number;
-  response_format?: { type: 'text' | 'json_object' };
+  response_format?:
+    | { type: 'text' | 'json_object' }
+    | {
+        type: 'json_schema';
+        json_schema: {
+          name: string;
+          strict: true;
+          schema: Record<string, unknown>;
+        };
+      };
 }
 
 /** Minimal subset of OpenAI response we consume. */
@@ -155,13 +165,21 @@ export class MlxHttpBackend implements LlmBackend {
       ...(opts.maxOutputTokens !== undefined
         ? { max_tokens: opts.maxOutputTokens }
         : {}),
-      // When a JSON Schema is provided, request JSON output mode.
-      // The server will apply the chat template with JSON mode enabled if
-      // supported; otherwise returns free-form text that may or may not be
-      // valid JSON.  Eval harness determines whether this is good enough
-      // for classify/extract promotion to Tier D.
+      // When a JSON Schema is provided, use OpenAI Structured Outputs strict
+      // mode. oMLX (verified 2026-05-07) enforces the schema constraint —
+      // model output is forced to match enum values, required fields, etc.
+      // This replaces llama.cpp's GBNF grammar enforcement at the server side.
       ...(opts.format !== undefined
-        ? { response_format: { type: 'json_object' as const } }
+        ? {
+            response_format: {
+              type: 'json_schema' as const,
+              json_schema: {
+                name: 'response',
+                strict: true as const,
+                schema: opts.format as Record<string, unknown>,
+              },
+            },
+          }
         : {}),
     };
 
