@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeSchemaForOllama } from '../../src/mcp/sanitize.js';
+import { sanitizeSchemaForStrictMode } from '../../src/mcp/sanitize.js';
 
-describe('sanitizeSchemaForOllama', () => {
+describe('sanitizeSchemaForStrictMode', () => {
   // ── Pass-through cases ────────────────────────────────────────────────────
   it('leaves a clean flat schema untouched', () => {
     const schema = {
@@ -12,7 +12,7 @@ describe('sanitizeSchemaForOllama', () => {
       },
       required: ['name', 'age'],
     };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toHaveLength(0);
@@ -27,7 +27,7 @@ describe('sanitizeSchemaForOllama', () => {
         tags: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 5 },
       },
     };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toHaveLength(0);
@@ -41,7 +41,7 @@ describe('sanitizeSchemaForOllama', () => {
         sentiment: { enum: ['positive', 'neutral', 'negative'] },
       },
     };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toHaveLength(0);
@@ -55,7 +55,7 @@ describe('sanitizeSchemaForOllama', () => {
         phone: { type: 'string', pattern: '^\\d{4}$' },
       },
     };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toContain('#/properties/phone/pattern');
@@ -69,7 +69,7 @@ describe('sanitizeSchemaForOllama', () => {
       type: 'array',
       items: { type: 'string', pattern: '^[A-Z]+$' },
     };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toContain('#/items/pattern');
@@ -90,7 +90,7 @@ describe('sanitizeSchemaForOllama', () => {
         },
       },
     };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toContain('#/properties/items/items/properties/code/pattern');
@@ -99,7 +99,7 @@ describe('sanitizeSchemaForOllama', () => {
   // ── format stripping ──────────────────────────────────────────────────────
   it('strips format: email', () => {
     const schema = { type: 'string', format: 'email' };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toContain('#/format');
@@ -108,7 +108,7 @@ describe('sanitizeSchemaForOllama', () => {
 
   it('strips format: uri', () => {
     const schema = { type: 'string', format: 'uri' };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toContain('#/format');
@@ -116,7 +116,7 @@ describe('sanitizeSchemaForOllama', () => {
 
   it('strips format: date-time', () => {
     const schema = { type: 'string', format: 'date-time' };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toContain('#/format');
@@ -124,7 +124,7 @@ describe('sanitizeSchemaForOllama', () => {
 
   it('does NOT strip an unrecognised format (e.g. "uuid")', () => {
     const schema = { type: 'string', format: 'uuid' };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toHaveLength(0);
@@ -134,7 +134,7 @@ describe('sanitizeSchemaForOllama', () => {
   // ── multipleOf stripping ──────────────────────────────────────────────────
   it('strips multipleOf', () => {
     const schema = { type: 'number', multipleOf: 0.01 };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toContain('#/multipleOf');
@@ -144,7 +144,7 @@ describe('sanitizeSchemaForOllama', () => {
   // ── $ref hard reject ─────────────────────────────────────────────────────
   it('returns ok=false when $ref is present at root', () => {
     const schema = { $ref: '#/$defs/Address' };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.reason).toBe('ref-detected');
@@ -157,7 +157,7 @@ describe('sanitizeSchemaForOllama', () => {
         address: { $ref: '#/$defs/Address' },
       },
     };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.reason).toBe('ref-detected');
@@ -172,7 +172,7 @@ describe('sanitizeSchemaForOllama', () => {
         { type: 'number' },
       ],
     };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toContain('#/anyOf/0/pattern');
@@ -187,7 +187,7 @@ describe('sanitizeSchemaForOllama', () => {
         price: { type: 'number', multipleOf: 0.01 },
       },
     };
-    const r = sanitizeSchemaForOllama(schema);
+    const r = sanitizeSchemaForStrictMode(schema);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stripped).toHaveLength(3);
@@ -199,7 +199,7 @@ describe('sanitizeSchemaForOllama', () => {
   // ── Does not mutate the original ────────────────────────────────────────
   it('does not mutate the original schema object', () => {
     const schema = { type: 'string', format: 'email', pattern: '^.+$' };
-    sanitizeSchemaForOllama(schema);
+    sanitizeSchemaForStrictMode(schema);
     expect(schema['format']).toBe('email');
     expect(schema['pattern']).toBe('^.+$');
   });

@@ -1,5 +1,5 @@
 /**
- * sanitizeSchemaForOllama — strip JSON Schema constraints that crash the
+ * sanitizeSchemaForStrictMode — strip JSON Schema constraints that crash the
  * llama.cpp GBNF grammar compiler used by Ollama's `format:` feature.
  *
  * Known-crash causes (Run C, eval-adversarial.mjs):
@@ -16,7 +16,7 @@
  *
  * Callers receive a `stripped` list of JSON Pointer paths to each removed
  * constraint. The extract tool surfaces these via
- * `_meta[dev.ollamamcpbridge/schema_stripped]` so callers can re-validate
+ * `_meta[dev.localmcptoolbelt/schema_stripped]` so callers can re-validate
  * using their original Zod schema on the bridge's output.
  *
  * Unit tests: tests/unit/sanitize.test.ts
@@ -40,7 +40,7 @@ export type SanitizeResult =
  * @returns       SanitizeResult — ok=true with sanitized schema and stripped
  *                paths, or ok=false if a `$ref` was encountered.
  */
-export function sanitizeSchemaForOllama(schema: unknown): SanitizeResult {
+export function sanitizeSchemaForStrictMode(schema: unknown): SanitizeResult {
   const clone = structuredClone(schema) as JsonSchemaNode;
   const stripped: string[] = [];
   const result = walkNode(clone, '#', stripped);

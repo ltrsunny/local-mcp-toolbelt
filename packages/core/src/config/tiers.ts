@@ -12,14 +12,16 @@
  * strict: true }`). The legacy Ollama and llama.cpp backends were removed.
  *
  * Default models (mlx-community on Hugging Face):
- * - Tier B + C: `Qwen3-8B-4bit`  (~5 GB) — single weights, two numCtx
- *   (B at 8 192, C at 32 768). oMLX loads the model once; numCtx is a
- *   per-request parameter (informational), so reusing the same model name
- *   across tiers does NOT collide the way `LlamaCppBackend.modelPath`-keyed
- *   cache would. Eval (2026-05-07) showed 8B at ~20-24 tok/s clears all
- *   B/C tools within 60 s when MAX_OUTPUT_TOKENS caps are honored.
- * - Tier D:     `Qwen3-14B-4bit` (~8 GB) — hardest tasks (classify subtle,
- *   transform on dense input). 16 K context.
+ * - Tier B: `Qwen3-4B-Instruct-2507-4bit` (~2.5 GB) — non-thinking variant.
+ *   The "Instruct-2507" suffix matters: bare `Qwen3-4B`/`Qwen3-8B` are
+ *   thinking models that emit `<think>...</think>` traces by default and
+ *   burn the per-tool MAX_OUTPUT_TOKENS cap before producing real output.
+ *   Instruct-2507 is the explicitly-non-thinking line.
+ * - Tier C: `Qwen3-8B-4bit` (~5 GB) — thinking variant; bridge injects
+ *   `/no_think` into user messages to disable reasoning at call time.
+ *   Long-form summarize at numCtx=32 768.
+ * - Tier D: `Qwen3-14B-4bit` (~8 GB) — also thinking; same `/no_think`
+ *   injection. Hardest tasks (classify subtle, transform on dense input).
  *
  * All Apache-2.0. Download into `~/.omlx/models/<dirname>` via:
  *   npm run download-models
@@ -72,18 +74,18 @@ export const DEFAULT_CONFIG: BridgeConfig = {
   tiers: {
     B: {
       mlxUrl: DEFAULT_MLX_URL,
-      // Qwen3-8B (Apache-2.0). 4-bit MLX ≈ 5 GB resident. Same weights as
-      // Tier C — oMLX serves both at numCtx=8192 (here) and numCtx=32768 (C)
-      // with no duplicate load. Capped per-tool budgets keep B latencies
-      // <30 s (classify=200 tok @ ~24 tps = 8 s; summarize=600 tok = 25 s).
-      mlxModelName: 'Qwen3-8B-4bit',
+      // Qwen3-4B-Instruct-2507 (Apache-2.0, non-thinking, native tool-calling).
+      // 4-bit MLX ≈ 2.5 GB resident. Fast for short classify / summarize /
+      // transform. No `/no_think` needed (already non-thinking variant).
+      mlxModelName: 'Qwen3-4B-Instruct-2507-4bit',
       numCtx: 8192,
     },
     C: {
       mlxUrl: DEFAULT_MLX_URL,
-      // Same Qwen3-8B as Tier B — long-form summarize over ~25 000 words at
-      // numCtx=32768. KV cache fills ~3-4 GB at this context size; total RAM
-      // ~8-9 GB on a 16 GB Mac. Fits when Tier D (14B) is not also loaded.
+      // Qwen3-8B (Apache-2.0). 4-bit MLX ≈ 5 GB resident. Long-form summarize
+      // over ~25 000 words at numCtx=32 768. Thinking model — bridge injects
+      // `/no_think` automatically at the MlxHttpBackend layer so summary
+      // output isn't preceded by a reasoning trace.
       mlxModelName: 'Qwen3-8B-4bit',
       numCtx: 32768,
     },

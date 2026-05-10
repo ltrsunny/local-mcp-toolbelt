@@ -131,7 +131,8 @@ describe('MlxHttpBackend', () => {
 
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body.model).toBe('test-model');
-    expect(body.messages).toEqual([{ role: 'user', content: 'Say hello' }]);
+    // `/no_think` is appended to user content to disable Qwen3 thinking trace.
+    expect(body.messages).toEqual([{ role: 'user', content: 'Say hello\n/no_think' }]);
     expect(body.temperature).toBe(0);
     // No response_format field when format is absent
     expect(body.response_format).toBeUndefined();
@@ -151,7 +152,7 @@ describe('MlxHttpBackend', () => {
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     ) as { messages: Array<{ role: string; content: string }> };
     expect(body.messages[0]).toEqual({ role: 'system', content: 'You are terse.' });
-    expect(body.messages[1]).toEqual({ role: 'user', content: 'Count to 3' });
+    expect(body.messages[1]).toEqual({ role: 'user', content: 'Count to 3\n/no_think' });
   });
 
   it('adds response_format json_object when opts.format is set', async () => {
@@ -174,9 +175,13 @@ describe('MlxHttpBackend', () => {
     };
     expect(body.response_format?.type).toBe('json_schema');
     expect(body.response_format?.json_schema?.strict).toBe(true);
+    // Strict-mode normalization: every object node gets
+    // additionalProperties: false + required: <all property keys>.
     expect(body.response_format?.json_schema?.schema).toEqual({
       type: 'object',
       properties: { label: { type: 'string' } },
+      additionalProperties: false,
+      required: ['label'],
     });
   });
 

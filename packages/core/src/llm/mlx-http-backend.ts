@@ -85,6 +85,53 @@ interface OpenAIChatResponse {
   };
 }
 
+/**
+ * Normalize a JSON Schema for OpenAI Structured Outputs strict mode.
+ *
+ * Strict mode (verified 2026-05-07 against oMLX) requires every object node
+ * to satisfy:
+ *   1. `additionalProperties: false`
+ *   2. `required` lists every key in `properties`
+ *
+ * Without these, oMLX silently falls back to non-strict mode and the model
+ * output is unconstrained — exactly the bug the strict mode was meant to
+ * prevent. This helper walks the schema and patches each `type: "object"`
+ * node in-place on a deep clone, so the caller's schema is unchanged.
+ *
+ * Skips: arrays' `items` are recursed into; `$ref` is left alone (oMLX
+ * resolves refs); enum / pattern / format are not strict-mode concerns.
+ */
+function normalizeForStrictMode(
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  const cloned = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
+  const visit = (node: unknown): void => {
+    if (node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    const obj = node as Record<string, unknown>;
+    if (obj['type'] === 'object' && obj['properties'] && typeof obj['properties'] === 'object') {
+      const props = obj['properties'] as Record<string, unknown>;
+      const keys = Object.keys(props);
+      // Strict-mode invariants:
+      obj['additionalProperties'] = false;
+      obj['required'] = keys;
+      // Recurse into property schemas.
+      for (const k of keys) visit(props[k]);
+    } else if (obj['type'] === 'array' && obj['items']) {
+      visit(obj['items']);
+    } else {
+      // Non-object/array: no strict-mode obligations, but still walk in case
+      // of `oneOf`/`anyOf`/etc. branches.
+      for (const v of Object.values(obj)) visit(v);
+    }
+  };
+  visit(cloned);
+  return cloned;
+}
+
 export class MlxHttpBackend implements LlmBackend {
   private readonly baseUrl: string;
   private readonly configuredModelName?: string;
@@ -154,7 +201,12 @@ export class MlxHttpBackend implements LlmBackend {
     if (opts.system !== undefined) {
       messages.push({ role: 'system', content: opts.system });
     }
-    messages.push({ role: 'user', content: opts.user });
+    // Append `/no_think` to user content. Qwen3 thinking models (8B, 14B)
+    // honor this token to disable the `<think>...</think>` reasoning trace
+    // that would otherwise burn the per-tool MAX_OUTPUT_TOKENS cap before
+    // any real output. Non-thinking models (Qwen3-4B-Instruct-2507, Mistral,
+    // Phi-4) treat it as inert text.
+    messages.push({ role: 'user', content: `${opts.user}\n/no_think` });
 
     const modelName = await this.resolveModelName();
 
@@ -166,9 +218,11 @@ export class MlxHttpBackend implements LlmBackend {
         ? { max_tokens: opts.maxOutputTokens }
         : {}),
       // When a JSON Schema is provided, use OpenAI Structured Outputs strict
-      // mode. oMLX (verified 2026-05-07) enforces the schema constraint —
-      // model output is forced to match enum values, required fields, etc.
-      // This replaces llama.cpp's GBNF grammar enforcement at the server side.
+      // mode. Strict mode requires `additionalProperties: false` and `required:
+      // <all properties>` on every object node — `normalizeForStrictMode`
+      // injects these so callers can pass plain JSON Schema. oMLX (verified
+      // 2026-05-07) enforces the constraint at decode time, replacing
+      // llama.cpp's GBNF grammar enforcement.
       ...(opts.format !== undefined
         ? {
             response_format: {
@@ -176,7 +230,9 @@ export class MlxHttpBackend implements LlmBackend {
               json_schema: {
                 name: 'response',
                 strict: true as const,
-                schema: opts.format as Record<string, unknown>,
+                schema: normalizeForStrictMode(
+                  opts.format as Record<string, unknown>,
+                ),
               },
             },
           }

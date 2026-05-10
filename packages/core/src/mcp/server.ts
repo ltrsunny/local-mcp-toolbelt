@@ -10,7 +10,7 @@ import {
 import { buildMeta } from './meta.js';
 import { buildFooter } from './footer.js';
 import { BridgeDefense } from './defense.js';
-import { sanitizeSchemaForOllama } from './sanitize.js';
+import { sanitizeSchemaForStrictMode } from './sanitize.js';
 import { readSource, readSourceOptionsFromEnv } from '../io/sourceReader.js';
 import { backendForTool } from './backend-factory.js';
 import { chunkedSummarize } from '../chunking/map-reduce.js';
@@ -709,7 +709,7 @@ export function buildBridgeServer(
       await sendProgress(extra, 0, 3, `routing to Tier ${tierKey} (${tierModelLabel(tierCfg)})`);
       try {
         // Schema sanitation (F2 sanitizer)
-        const sanitized = sanitizeSchemaForOllama(schema);
+        const sanitized = sanitizeSchemaForStrictMode(schema);
         if (!sanitized.ok) {
           return {
             isError: true as const,
@@ -944,7 +944,7 @@ export function buildBridgeServer(
         }
 
         await sendProgress(extra, 2, 3, 'generating…');
-        const sanitized = sanitizeSchemaForOllama(DIFF_INDEX_OUTPUT_SCHEMA);
+        const sanitized = sanitizeSchemaForStrictMode(DIFF_INDEX_OUTPUT_SCHEMA);
         if (!sanitized.ok) {
           return {
             isError: true as const,
