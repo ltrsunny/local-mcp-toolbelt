@@ -149,16 +149,13 @@ now:
   `GEM_MODEL=gemini-2.5-flash gem "..."`. Best for: divergent web research,
   adversarial scope-memo reviews, multi-source PA surveys, delegated
   multi-file tasks. Pro subscription, generous quota.
-- **Copilot CLI** (`copilot -p ... --effort xhigh --allow-all-tools`): the
-  standalone `@github/copilot` npm binary (GA 2026-02-25) — **not** the
-  deprecated `gh copilot` extension. Full agentic: plan, write files, run
-  shell, iterate. `--allow-all-tools` auto-approves all tools; `--effort
-  xhigh` = max reasoning depth. In interactive mode, Shift+Tab×2 enters
-  **Autopilot** (runs until task done, no per-step confirm). Best for:
-  multi-file refactors, building features end-to-end, tasks that need
-  GitHub-MCP context (issues, PRs). Free tier 50 premium/month.
-  Note: "building a project on GitHub web" = **Copilot Workspace** (browser,
-  Issue→PR flow), distinct from CLI.
+- **Copilot CLI** (`copilot -p ... --effort xhigh --yolo`): standalone
+  `@github/copilot` npm binary, full agentic. **`--yolo` is required in
+  `-p` mode** — it covers all-tools + all-paths + all-urls. Plain
+  `--allow-all-tools` leaves path/URL prompts headless can't answer →
+  silent hang (verified 2026-05-11, copilot 1.0.44). `--effort xhigh` =
+  max reasoning. Best for: multi-file refactors, GitHub-MCP context
+  (issues, PRs). 50 premium/month.
 - **Nvidia NIM** (`nv_sum`, `nv_pro` shell functions): free OpenAI-compatible
   inference. `nv_sum` → llama-3.2-3b for fast small tasks; `nv_pro` →
   qwen3.5-397b-a17b for heavy single-shot analysis (verified live

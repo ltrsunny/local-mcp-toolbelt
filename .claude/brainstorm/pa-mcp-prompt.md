@@ -35,4 +35,6 @@ OUTPUT: save markdown to
 /Users/rd/ollama-claude/docs/prior-art/v0.6.0-mcp-async-2026-05-11-copilot.md
 (create the directory if needed)
 
-Use --allow-all-tools. --effort xhigh.
+Use --yolo (= --allow-all-tools + --allow-all-paths + --allow-all-urls;
+plain --allow-all-tools alone silently hangs in -p mode on copilot 1.0.44).
+--effort xhigh.
