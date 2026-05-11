@@ -265,11 +265,35 @@ export class MlxHttpBackend implements LlmBackend {
       // the caller's intent.
       if (signal?.aborted) throw err;
       if (!MlxHttpBackend.isConnectionResetError(err)) throw err;
+
       // oMLX likely SIGABORTed; launchd will restart. Wait briefly, then
       // retry once. If still down or the retry also drops, the second
       // error propagates as-is — we don't retry indefinitely.
-      await this.waitForRestart(signal);
-      return await this._chatOnce(opts, signal);
+      //
+      // Telemetry: each retry writes one structured line to stderr so the
+      // breaker doesn't hide ongoing upstream instability. Users can
+      // count occurrences with e.g. `grep -c "circuit-breaker:" stderr.log`
+      // to monitor crash frequency over time.
+      const marker = MlxHttpBackend.firstMatchingMarker(err);
+      const startedAt = Date.now();
+      process.stderr.write(
+        `[bridge] circuit-breaker: triggered marker=${marker} model=${this.resolvedModelName ?? 'unresolved'}\n`,
+      );
+      try {
+        await this.waitForRestart(signal);
+        const result = await this._chatOnce(opts, signal);
+        process.stderr.write(
+          `[bridge] circuit-breaker: outcome=retry-ok wait_ms=${Date.now() - startedAt} marker=${marker}\n`,
+        );
+        return result;
+      } catch (retryErr) {
+        process.stderr.write(
+          `[bridge] circuit-breaker: outcome=${
+            signal?.aborted ? 'aborted-during-wait' : 'did-not-recover'
+          } wait_ms=${Date.now() - startedAt} marker=${marker}\n`,
+        );
+        throw retryErr;
+      }
     }
   }
 
@@ -402,6 +426,16 @@ export class MlxHttpBackend implements LlmBackend {
    * sometimes nests the underlying socket error one level deep).
    */
   private static isConnectionResetError(err: unknown): boolean {
+    return MlxHttpBackend.firstMatchingMarker(err) !== null;
+  }
+
+  /**
+   * Returns the first CONNECTION_RESET_MARKERS substring that appears in
+   * the error's message or code chain (walking `cause` up to 4 levels),
+   * or `null` if none match. Used both for the boolean check and for
+   * telemetry attribution (which marker triggered the breaker).
+   */
+  private static firstMatchingMarker(err: unknown): string | null {
     let cur: unknown = err;
     for (let depth = 0; depth < 4 && cur != null && typeof cur === 'object'; depth++) {
       const msg = (cur as { message?: unknown }).message;
@@ -409,12 +443,12 @@ export class MlxHttpBackend implements LlmBackend {
       const text = typeof msg === 'string' ? msg : '';
       const codeText = typeof code === 'string' ? code : '';
       const haystack = `${text} ${codeText}`;
-      if (MlxHttpBackend.CONNECTION_RESET_MARKERS.some((p) => haystack.includes(p))) {
-        return true;
+      for (const m of MlxHttpBackend.CONNECTION_RESET_MARKERS) {
+        if (haystack.includes(m)) return m;
       }
       cur = (cur as { cause?: unknown }).cause;
     }
-    return false;
+    return null;
   }
 
   /**
