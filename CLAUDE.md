@@ -159,9 +159,12 @@ now:
   Issue→PR flow), distinct from CLI.
 - **Nvidia NIM** (`nv_sum`, `nv_pro` shell functions): free OpenAI-compatible
   inference. `nv_sum` → llama-3.2-3b for fast small tasks; `nv_pro` →
-  deepseek-v4-pro for heavy single-shot analysis. No agentic loop — pipe-in
-  / Q&A only. Use when a task needs frontier-class inference but not
-  multi-step tool use.
+  qwen3.5-397b-a17b for heavy single-shot analysis (verified live
+  2026-05-10; deepseek-v4-pro is currently capacity-exhausted, kimi-k2.6
+  has tokenizer corruption). No agentic loop — pipe-in / Q&A only. Use
+  when a task needs frontier-class inference but not multi-step tool use.
+  **Always check `/v1/models` for current availability** before assuming
+  a specific model works — config drifts.
 - **The bridge itself** for everything that fits — see "Bridge-usage
   discipline" above.
 

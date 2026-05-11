@@ -24,6 +24,7 @@ ALLOWED_PREFIXES=(
   "${CLAUDE_PROJECT_DIR:-/Users/rd/ollama-claude}"
   "${HOME}/.claude"
   "${HOME}/.omlx"
+  "${HOME}/.config/claude-dev"
 )
 
 # Read the hook input JSON.

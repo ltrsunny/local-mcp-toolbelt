@@ -2,7 +2,7 @@ import * as cheerio from 'cheerio';
 
 const LIBRARY_URL = 'https://ollama.com/library';
 const USER_AGENT =
-  'ollama-mcp-bridge/0.1 (+https://github.com/ollama-mcp-bridge)';
+  'local-mcp-toolbelt/0.5 (+https://github.com/ltrsunny/local-mcp-toolbelt)';
 
 export interface CatalogModel {
   name: string;

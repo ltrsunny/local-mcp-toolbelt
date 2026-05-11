@@ -1,22 +1,25 @@
-# ollama-mcp-bridge (working name)
+# local-mcp-toolbelt
 
-[![CI](https://github.com/ltrsunny/ollama-mcp-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/ltrsunny/ollama-mcp-bridge/actions/workflows/ci.yml)
+[![CI](https://github.com/ltrsunny/local-mcp-toolbelt/actions/workflows/ci.yml/badge.svg)](https://github.com/ltrsunny/local-mcp-toolbelt/actions/workflows/ci.yml)
 
 > Let any MCP-compatible AI assistant — Claude Desktop, Cursor, Cline, Zed, and
-> others — delegate lightweight tasks to a local [Ollama](https://ollama.com)
-> model. Save tokens. Stay private. Run offline-capable grunt work on your own
-> machine.
+> others — delegate lightweight tasks to a local oMLX inference server.
+> Save tokens. Stay private. Run offline-capable grunt work on your own
+> Apple Silicon machine.
 
-**Status: v0.2.0 — alpha.** Six tools available: `summarize`, `summarize-long`,
-`summarize-long-chunked`, `classify`, `extract`, `transform`. The working name
-will be reconsidered before the first public release.
+**Status: v0.5.0.** Six tools: `summarize`, `summarize-long`,
+`summarize-long-chunked`, `classify`, `extract`, `transform`.
+Single backend: `MlxHttpBackend` → [oMLX](https://github.com/jundot/omlx)
+serving Qwen3-4B/8B/14B (MLX 4-bit) on Apple Silicon. KV-cache persistent
+across requests; OpenAI Structured Outputs strict mode for grammar
+enforcement.
 
 ## Layout
 
 This is a monorepo with two packages:
 
-- [`packages/core`](./packages/core) &mdash; `ollama-mcp-bridge`, the universal
-  MCP server and companion CLI. Works with any MCP client. Installable via npm
+- [`packages/core`](./packages/core) &mdash; `local-mcp-toolbelt`, the MCP
+  server and companion CLI. Works with any MCP client. Installable via npm
   and usable standalone.
 - `packages/claude-desktop` (coming soon) &mdash; a `.mcpb` one-click installer
   that wraps the core for Claude Desktop users who do not want to edit JSON.
@@ -37,8 +40,9 @@ Cursor, Cline, Zed, …). They all share the same security pipeline and emit
 summarize(text?: string, source_uri?: string, style?: string) → prose summary
 ```
 
-Delegates to **Tier B** (`qwen3:4b`). Best for documents up to ~4 K tokens.
-Either `text` or `source_uri` must be provided (mutually exclusive).
+Delegates to **Tier B** (`Qwen3-4B-Instruct-2507-4bit`, non-thinking
+variant). Best for documents up to ~4 K tokens. Either `text` or
+`source_uri` must be provided (mutually exclusive).
 
 ### `summarize-long`
 
@@ -46,14 +50,19 @@ Either `text` or `source_uri` must be provided (mutually exclusive).
 summarize-long(text?: string, source_uri?: string, style?: string) → structured summary
 ```
 
-Routes to **Tier C** (`qwen2.5:7b`, `num_ctx=32768`) for long-context documents
-(1–2 sentence lead + 3–6 bullets). Either `text` or `source_uri` must be provided.
+Routes to **Tier C** (`Qwen3-8B-4bit` MLX, `numCtx=32768`) for long-context
+documents (1–2 sentence lead + 3–6 bullets). Either `text` or `source_uri`
+must be provided.
 
-> **`num_ctx=32768`** admits ~25 K words of source in a single call (measured
-> ~6.7 GB total memory use, ~223 s wall time for a full 32 K-token input on
-> qwen2.5:7b Q4_K_M on a 16 GB Mac). Documents longer than ~25 K words are
-> silently left-truncated by Ollama itself — use `summarize-long-chunked`
-> for those.
+> Qwen3-8B is a thinking model; the bridge auto-injects `\n/no_think` into
+> user content so the model emits the summary directly without first
+> burning the per-tool cap on a `<think>...</think>` reasoning trace.
+>
+> **`numCtx=32768`** admits ~25 K words of source in a single call.
+> Server-side residency is ~5 GB weights + ~3 GB KV at full context, so
+> total ~8 GB on the 16 GB Mac (fits when Tier D 14B is not also loaded).
+> Documents longer than ~25 K words exceed the model's context — use
+> `summarize-long-chunked` for those.
 
 ### `summarize-long-chunked`
 
@@ -106,10 +115,12 @@ classify(
 ) → { labels: string[], reason?: string }
 ```
 
-Grammar-constrained classification — the model's output is **forced** to be a
-valid member of `categories` via Ollama's `format:` schema feature. When
-`allow_multiple` is `true`, multiple labels are allowed. When `explain` is
-`true`, a `reason` string is appended (source language preserved).
+Grammar-constrained classification — the model's output is **forced** to
+be a valid member of `categories` via OpenAI Structured Outputs strict
+mode (`response_format: {type:"json_schema", strict:true}`) on oMLX.
+When `allow_multiple` is `true`, multiple labels are allowed. When
+`explain` is `true`, a `reason` string is appended (source language
+preserved).
 
 ### `extract`
 
@@ -118,12 +129,14 @@ extract(text?: string, source_uri?: string, schema: JSONSchemaObject) → { data
 ```
 
 Structured-data extraction against an arbitrary JSON Schema. The bridge
-automatically strips constraints that crash Ollama's grammar compiler before
-forwarding (see **Schema constraints** below). Stripped constraints are surfaced
-in `_meta` so you can re-validate with Zod on your side.
+automatically strips constraints unsupported by oMLX's strict-mode decoder
+(see **Schema constraints** below) and adds the `additionalProperties:
+false` + full `required` keys that strict mode requires. Stripped
+constraints are surfaced in `_meta` so you can re-validate with Zod on
+your side.
 
 **Schema constraints** — the sanitizer strips these silently and reports them in
-`_meta["dev.ollamamcpbridge/schema_stripped"]`:
+`_meta["dev.localmcptoolbelt/schema_stripped"]`:
 
 | Constraint | Example Zod | Status |
 |---|---|---|
@@ -175,15 +188,18 @@ source_uri: "https://example.com/article.html"
 | `OMCP_TELEMETRY_FOOTER` | `1` | Set `0` to suppress footer in `content[]` |
 | `OMCP_CHUNK_SIZE` | `2000` | `summarize-long-chunked` target tokens per chunk |
 | `OMCP_CHUNK_OVERLAP` | `200` | `summarize-long-chunked` overlap between adjacent chunks |
-| `OMCP_CHUNK_CONCURRENCY` | `2` | `summarize-long-chunked` MAP fan-out cap (Ollama serializes on Metal so >2 mostly adds queueing) |
-| `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama daemon URL — same env var Ollama itself uses; `--host` flag overrides |
+| `OMCP_CHUNK_CONCURRENCY` | `2` | `summarize-long-chunked` MAP fan-out cap (oMLX serializes generation on Metal so >2 mostly adds queueing) |
+| `OMCP_MLX_URL` | `http://127.0.0.1:8000` | oMLX server URL — overridden by `--mlx-url` |
+| `OMCP_TIER_B_MODEL` | `Qwen3-4B-Instruct-2507-4bit` | Tier B model name (must exist under `~/.omlx/models/`) |
+| `OMCP_TIER_C_MODEL` | `Qwen3-8B-4bit` | Tier C model name |
+| `OMCP_TIER_D_MODEL` | `Qwen3-14B-4bit` | Tier D model name |
 
 ---
 
 ## Security
 
 All tool inputs pass through a two-layer prompt-injection defense before
-reaching Ollama:
+reaching oMLX:
 
 1. **NFKC normalization** (Unicode TR#15) — collapses Cyrillic/Greek homoglyphs
    to ASCII, defeating basic homoglyph injection.
@@ -192,7 +208,7 @@ reaching Ollama:
    it as data, not instructions.
 3. **`@stackone/defender` Tier-1** (always-on) — regex/pattern classifier that
    blocks role-marker overrides, encoding attacks, and instruction-injection
-   patterns. Blocked inputs return `isError: true` without calling Ollama.
+   patterns. Blocked inputs return `isError: true` without calling oMLX.
 4. **Tier-2 ML classifier** (opt-in) — MiniLM ONNX model via `@stackone/defender`.
    Enable with `OMCP_DEFENDER_TIER2=1`. Adds ~475 MB in peer dependencies
    (`onnxruntime-node`, `@huggingface/transformers`).
@@ -205,19 +221,19 @@ Every tool response includes a `_meta` record with observability data:
 
 | Key | Always? | Description |
 |---|---|---|
-| `dev.ollamamcpbridge/model` | ✓ | Resolved Ollama model tag |
-| `dev.ollamamcpbridge/tier` | ✓ | `B` or `C` |
-| `dev.ollamamcpbridge/latency_ms` | ✓ | End-to-end wall-clock ms |
-| `dev.ollamamcpbridge/prompt_tokens` | ✓ | `prompt_eval_count` from Ollama |
-| `dev.ollamamcpbridge/completion_tokens` | ✓ | `eval_count` from Ollama |
-| `dev.ollamamcpbridge/defender/tier` | When defense ran | `1`, `1+2`, or `off` |
-| `dev.ollamamcpbridge/defender/score` | When Tier-2 ran | Float 0–1 confidence |
-| `dev.ollamamcpbridge/defender/risk` | When flagged | Tier-1 risk level string |
-| `dev.ollamamcpbridge/schema_validation` | `extract` only | `passed` or `failed` |
-| `dev.ollamamcpbridge/schema_stripped` | `extract` only (when stripped) | List of stripped JSON Pointer paths |
-| `dev.ollamamcpbridge/source_uri` | When `source_uri` used | The URI that was read |
-| `dev.ollamamcpbridge/source_bytes` | When `source_uri` used | Raw byte count of fetched content |
-| `dev.ollamamcpbridge/saved_input_tokens_estimate` | When `source_uri` used | `floor(bytes/4) − completion_tokens` |
+| `dev.localmcptoolbelt/model` | ✓ | Resolved oMLX model name (e.g. `Qwen3-4B-Instruct-2507-4bit`) |
+| `dev.localmcptoolbelt/tier` | ✓ | `B`, `C`, or `D` |
+| `dev.localmcptoolbelt/latency_ms` | ✓ | End-to-end wall-clock ms |
+| `dev.localmcptoolbelt/prompt_tokens` | ✓ | `usage.prompt_tokens` from oMLX |
+| `dev.localmcptoolbelt/completion_tokens` | ✓ | `usage.completion_tokens` from oMLX |
+| `dev.localmcptoolbelt/defender/tier` | When defense ran | `1`, `1+2`, or `off` |
+| `dev.localmcptoolbelt/defender/score` | When Tier-2 ran | Float 0–1 confidence |
+| `dev.localmcptoolbelt/defender/risk` | When flagged | Tier-1 risk level string |
+| `dev.localmcptoolbelt/schema_validation` | `extract` only | `passed` or `failed` |
+| `dev.localmcptoolbelt/schema_stripped` | `extract` only (when stripped) | List of stripped JSON Pointer paths |
+| `dev.localmcptoolbelt/source_uri` | When `source_uri` used | The URI that was read |
+| `dev.localmcptoolbelt/source_bytes` | When `source_uri` used | Raw byte count of fetched content |
+| `dev.localmcptoolbelt/saved_input_tokens_estimate` | When `source_uri` used | `floor(bytes/4) − completion_tokens` |
 
 ### Telemetry footer
 
@@ -225,8 +241,8 @@ Every successful response also appends a one-line footer as the **last `content[
 item** — visible to the calling frontier LLM, unlike `_meta`:
 
 ```
-[bridge: qwen3:4b B 1240ms in=230 out=85]
-[bridge: qwen3:4b B 1240ms in=230 out=85 saved~=+210]
+[bridge: Qwen3-4B-Instruct-2507-4bit B 1240ms in=230 out=85]
+[bridge: Qwen3-4B-Instruct-2507-4bit B 1240ms in=230 out=85 saved~=+210]
 ```
 
 The `saved~=` field appears when `source_uri` was used. Suppress with
@@ -236,14 +252,21 @@ The `saved~=` field appears when `source_uri` was used. Suppress with
 
 ## Development
 
-Requirements: Node.js &ge; 22, npm &ge; 10, [Ollama](https://ollama.com)
-running locally if you want to exercise the end-to-end flows.
+Requirements: Node.js &ge; 22, npm &ge; 10, [oMLX](https://github.com/jundot/omlx)
+running locally for end-to-end flows.
 
 ```bash
+# Start oMLX inference server (Apple Silicon only)
+brew services start jundot/omlx/omlx
+
+# Install dependencies + build
 npm install
-cd packages/core
-npm run dev -- hardware
-npm run dev -- catalog
+
+# Download MLX weights for all tiers (Tier B/C/D)
+cd packages/core && npm run download-models
+
+# Verify oMLX is serving
+curl -s localhost:8000/v1/models | jq '.data[].id'
 ```
 
 ## License

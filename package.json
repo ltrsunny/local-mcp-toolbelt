@@ -1,8 +1,8 @@
 {
-  "name": "ollama-mcp-bridge-workspace",
+  "name": "local-mcp-toolbelt-workspace",
   "version": "0.0.0",
   "private": true,
-  "description": "Monorepo: a universal MCP server bridging any MCP client to a local Ollama instance, plus a Claude Desktop one-click installer.",
+  "description": "Monorepo: local-mcp-toolbelt, a local-first MCP toolbelt for delegating inference tasks to in-process llama.cpp models.",
   "license": "Apache-2.0",
   "workspaces": [
     "packages/*"

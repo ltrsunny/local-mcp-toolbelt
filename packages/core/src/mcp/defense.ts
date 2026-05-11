@@ -1,5 +1,5 @@
 /**
- * Prompt-injection defense for ollama-mcp-bridge (F4).
+ * Prompt-injection defense for local-mcp-toolbelt (F4).
  *
  * Two-layer architecture:
  *

@@ -7,6 +7,136 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] — 2026-05-10
+
+### Theme
+
+**"Collapse to single oMLX backend; hard-enforce bridge usage"** — both
+Ollama and llama.cpp backends were removed in favor of a single
+`MlxHttpBackend` talking to a local oMLX server (`jundot/omlx`). All
+three tiers (B/C/D) now serve different MLX models out of one process.
+`.claude/settings.json` ships a `PreToolUse` hook that blocks direct
+external file reads >1 KB and routes Claude back through the bridge.
+See `docs/scope-memos/v0.5.0-shipped-2026-05-10.md` for the full
+post-mortem and `v0.5.0-threat-model-2026-05-10.md` for the
+single-user-machine threat model.
+
+### Breaking changes
+
+- **Package name**: `ollama-mcp-bridge` → `local-mcp-toolbelt`
+- **Binary**: `ollama-mcp` → `local-mcp` (e.g. `local-mcp serve`)
+- **MCP server self-name & client key**: `ollama-bridge` →
+  `local-mcp-toolbelt`. Update your MCP client config:
+  ```json
+  { "mcpServers": { "local-mcp-toolbelt": { ... } } }
+  ```
+  Tool prefix becomes `mcp__local-mcp-toolbelt__classify` etc.
+- **`TierConfig` shape**: `model?`, `modelPath?`, `keepAlive?` fields
+  removed. Replaced by `mlxUrl?` + `mlxModelName?`. Existing user
+  configs using the old fields throw at config-resolve time with a
+  clear migration message.
+- **CLI flags**: `--tier-{b,c}-model` and `--tier-{b,c}-path` removed.
+  Replaced by `--mlx-url` and `--tier-{b,c,d}-model` (which now mean
+  *MLX model names*, not Ollama tags).
+- **No more Ollama daemon** is acceptable: `ollama` package removed
+  from dependencies. No more llama.cpp either: `node-llama-cpp`
+  removed.
+- **GGUF files no longer used**: replace with MLX weights under
+  `~/.omlx/models/`. Run `npm run download-models` to fetch defaults.
+
+### Added
+
+- **`MlxHttpBackend`** (`src/llm/mlx-http-backend.ts`) — only
+  `LlmBackend` implementation. Speaks OpenAI-compatible HTTP to oMLX,
+  uses `response_format: { type: "json_schema", strict: true }` for
+  schema enforcement, auto-injects `\n/no_think` into user content for
+  Qwen3 thinking models.
+- **`MlxHttpBackend.normalizeForStrictMode()`** — patches every object
+  node in a JSON Schema with `additionalProperties: false` + full
+  `required` lists so oMLX strict mode actually engages (without this,
+  oMLX silently falls back to unconstrained mode).
+- **`MAX_OUTPUT_TOKENS`** per-tool budgets (`src/mcp/server.ts`):
+  summarize 600, summarize-long 1200, classify 200, transform 1200,
+  extract 2048, diff-semantic-index 1024. Mirrored in
+  `tests/eval/lib/invoke.mjs`.
+- **Tier D** (Qwen3-14B-MLX-4bit at numCtx=16384) opt-in via
+  `toolTierMap` override. Routable for `classify` + `transform` per
+  capped-eval data; `summarize-long` and `extract` stay on B/C.
+- **`PreToolUse` hook** (`.claude/hooks/enforce-bridge.sh`,
+  `.claude/settings.json`) — exit-2 blocks direct reads of external
+  files >1 KB; injects `mcp__local-mcp-toolbelt__*` tool name + the
+  matching `source_uri` pattern back into the model's context.
+- **`npm run download-models`** — fetches the three default MLX
+  weights (4B-Instruct, 8B, 14B) into `~/.omlx/models/` via oMLX's
+  bundled Python.
+- **CLI**: `--mlx-url`, `--tier-b-model`, `--tier-c-model`,
+  `--tier-d-model` flags.
+
+### Removed
+
+- **`OllamaBackend`**, **`OllamaClient`**, **`OllamaDaemonError`**,
+  **`LlamaCppBackend`**, all backend-factory branches for Ollama and
+  llama.cpp paths. Single MLX HTTP path remains.
+- **`tests/smoke-bridge.mjs`** — the Ollama-daemon-coupled 58-test
+  smoke harness. No replacement ships in v0.5.0; tracked as v0.6.0
+  follow-up F4 (eval-as-smoke harness).
+- **`models` and `catalog` CLI subcommands** — relied on the Ollama
+  daemon HTTP API.
+- **Runtime deps**: `ollama@^0.6.3`, `node-llama-cpp@^3.18.1`.
+
+### Changed
+
+- **Tier B default**: `qwen3:4b-instruct-2507-q4_K_M` (Ollama tag) →
+  `Qwen3-4B-Instruct-2507-4bit` (MLX dir name). The "Instruct-2507"
+  variant is non-thinking; bare Qwen3-4B is a thinking model that
+  burns the per-tool cap on reasoning.
+- **Tier C default**: `qwen2.5:7b` (Ollama) → `Qwen3-8B-4bit` (MLX) at
+  numCtx 32 768. Qwen3-8B is a thinking model; bridge auto-injects
+  `/no_think` to disable the reasoning trace at call time.
+- **Migration snapshot test contract** (`tests/unit/migration-snapshot.test.ts`):
+  was Ollama-vocabulary fields (`model`, `keepAlive`, `numPredict`).
+  Is now the v0.5.0 `LlmBackend.ChatOptions` payload — purely
+  vocabulary-neutral.
+- **`sanitizeSchemaForOllama` → `sanitizeSchemaForStrictMode`** — same
+  behaviour (strips `pattern`, `format: email/uri`, `$ref`), accurate
+  name for the oMLX strict-mode regime it now serves.
+- **README, `packages/core/README.md`, CLAUDE.md** — rewritten for the
+  oMLX architecture. Old llama.cpp / Ollama prose deleted.
+
+### Fixed
+
+- **Tier B thinking-mode bug**: bare Qwen3-{4,8,14}B emit
+  `<think>...</think>` reasoning before output, exhausting the per-tool
+  `MAX_OUTPUT_TOKENS` cap (200 tokens for classify) before producing
+  any JSON. Fixed by switching Tier B to the explicit-non-thinking
+  Instruct-2507 variant + universal `/no_think` user-content suffix
+  for Tier C/D thinking variants.
+- **OpenAI Structured Outputs strict-mode silent fallback**: requests
+  without `additionalProperties: false` AND `required: <all keys>` on
+  every object node were accepted by oMLX but with strict disabled,
+  yielding unconstrained output that ignored enums and required
+  fields. Fixed by `normalizeForStrictMode()` walking the schema.
+- **`nv_pro` shell helper config drift**: default model in
+  `~/.config/claude-dev/helpers.sh` was `qwen3-coder-480b` but the
+  CLAUDE.md cheat-sheet promised `deepseek-v4-pro`. Both updated to
+  `qwen/qwen3.5-397b-a17b` (verified live 2026-05-10).
+
+### Runtime dependencies added
+
+(none beyond v0.4.0 base)
+
+### Known follow-ups (not v0.5.0)
+
+| ID | Item | Phase |
+|----|------|-------|
+| F1 | 4B-Instruct eval matrix re-run (5 trial × 4 task) | v0.6.0 P1 |
+| F2 | Type-B docs (per-tier latency tables) | v0.6.0 P2 |
+| F3 | Security hardening scope memo | v0.6.0 P3 (parallel) |
+| F4 | Eval-as-smoke harness | v0.6.0 P1 |
+| F5 | Output-side bridge dogfooding (transform for boilerplate) | v0.7.0+ |
+
+---
+
 ## [0.3.0] — 2026-04-27
 
 ### Theme

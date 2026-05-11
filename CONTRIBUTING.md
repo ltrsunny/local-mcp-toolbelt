@@ -2,11 +2,11 @@
 
 ## Development setup
 
-Requirements: Node.js ≥ 22, npm ≥ 10, [Ollama](https://ollama.com) running locally.
+Requirements: Node.js ≥ 22, npm ≥ 10. A GGUF model for the llama.cpp backend (see README), or Ollama for the deprecated path.
 
 ```bash
-git clone https://github.com/ltrsunny/ollama-mcp-bridge.git
-cd ollama-mcp-bridge
+git clone https://github.com/ltrsunny/local-mcp-toolbelt.git
+cd local-mcp-toolbelt
 npm install
 ```
 

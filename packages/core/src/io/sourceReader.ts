@@ -167,7 +167,7 @@ export async function readSource(
     try {
       res = await fetch(parsed.toString(), {
         signal: controller.signal,
-        headers: { 'User-Agent': 'ollama-mcp-bridge/0.1.2' },
+        headers: { 'User-Agent': 'local-mcp-toolbelt/0.5.0' },
       });
     } catch (err) {
       const isAbort = (err as Error).name === 'AbortError';
