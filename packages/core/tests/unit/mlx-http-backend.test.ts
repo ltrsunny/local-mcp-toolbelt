@@ -399,6 +399,34 @@ describe('MlxHttpBackend', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it('retries on mid-stream terminated error (undici stream abort)', async () => {
+      // Failure mode #2: response headers arrive ok, then response.json()
+      // aborts mid-stream because oMLX SIGABORTed during decode.
+      // _chatOnce wraps the inner TypeError as "MlxHttpBackend: failed to
+      // parse JSON response — terminated".
+      const fetchMock = vi.fn()
+        // 1st chat: response.json() throws "terminated"
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => {
+            throw new TypeError('terminated');
+          },
+          text: async () => '',
+        } as unknown as Response)
+        // /health probe succeeds (launchd already restarted)
+        .mockResolvedValueOnce(makeOkResponse({ status: 'ok' }))
+        // 2nd chat: ok
+        .mockResolvedValueOnce(makeOkResponse(chatResponse('retried-after-terminated')));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await backend.chat({ user: 'hi', maxInputTokens: 1024 });
+
+      expect(result.text).toBe('retried-after-terminated');
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
     it('throws "did not recover" if oMLX never comes back within the budget', async () => {
       // Use the @internal budget/interval overrides to keep this test well
       // under vitest's 5s timeout (default budget would be 5000 ms exactly).

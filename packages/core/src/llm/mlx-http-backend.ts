@@ -155,7 +155,18 @@ export class MlxHttpBackend implements LlmBackend {
    * Substrings on `Error.message` / `Error.code` / `Error.cause.*` that we
    * treat as "server died mid-request" — i.e. eligible for one circuit-
    * breaker retry after the launchd-managed oMLX has restarted. Anything
-   * else propagates unchanged (HTTP 4xx/5xx, JSON parse errors, etc.).
+   * else propagates unchanged (HTTP 4xx/5xx, authentic JSON parse errors
+   * on a complete response body, etc.).
+   *
+   * Two failure modes observed in production (oMLX SIGABRT mid-request):
+   *   1. `fetch()` itself rejects before any response — undici raises
+   *      `TypeError: fetch failed` with cause `{ code: 'ECONNRESET' }`
+   *      or `{ code: 'UND_ERR_SOCKET' }`.
+   *   2. Response headers arrive, then `response.json()` aborts mid-stream
+   *      with `TypeError: terminated` (undici 6+ wording for a connection
+   *      that was severed mid-body). Our `_chatOnce` wraps this as
+   *      "MlxHttpBackend: failed to parse JSON response — terminated";
+   *      `"terminated"` covers both the unwrapped and wrapped forms.
    *
    * Deliberately NOT included: our own "MlxHttpBackend: network error — …"
    * wrapper text. If we matched that we'd retry on every fetch failure
@@ -167,6 +178,7 @@ export class MlxHttpBackend implements LlmBackend {
     'socket hang up',
     'UND_ERR_SOCKET',
     'fetch failed', // Node 22 undici outer message for socket-level aborts
+    'terminated', // undici 6+ wording for stream aborted mid-body (oMLX SIGABORT during decode)
   ];
 
   private readonly baseUrl: string;

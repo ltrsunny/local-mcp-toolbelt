@@ -27,6 +27,9 @@ Observed twice on the same machine, ~16 hours apart, with similar workloads.
 - Signal: SIGABRT
 - Stack reveals MLX symbol clearly:
 
+(see Crash 3 below for the same stack observed on oMLX HEAD — these
+fixes did not close the path.)
+
 ```
 __pthread_kill
 pthread_kill
@@ -47,6 +50,32 @@ invocation function for block in MTL::CommandBuffer::addCompletedHandler(...)
 
 Termination indicator: `Abort trap: 6` (`SIGNAL` namespace, code 6).
 `asi: {"libsystem_c.dylib":["abort() called"]}`.
+
+### Crash 3 — 2026-05-11 15:07:32 (on HEAD-3d62ea0)
+
+After observing the first two crashes we upgraded oMLX from 0.3.8 to
+HEAD-3d62ea0 — a build that contains all the recent fixes that we
+suspected might be related (#1126 OOM guard, #1146 async_eval for
+cache-store materialization, #1101 hot-cache shutdown flush). Smoke-
+tested 14B classify x3 + 4B tier swap + 14B again — all clean.
+
+But running a wider eval against the upgraded build immediately
+reproduced the same crash on a `transform` call (Qwen3-4B-Instruct-2507-4bit,
+~3.4 KB synthetic input, instruction asking the model to convert
+standup notes into a numbered action-item list, `max_tokens=1200`).
+
+- Process uptime before crash: 16 s
+- Signal: SIGABRT
+- Identical top-of-stack:
+
+```
+mlx::core::gpu::check_error(MTL::CommandBuffer*)  ← still unguarded
+  __cxa_throw → std::__terminate → abort()
+```
+
+So #1126/#1146/#1101 reduce the trigger rate (short-output calls now
+pass) but do NOT add the missing `try/catch`. Longer decodes still hit
+the unprotected path.
 
 ## Environment
 

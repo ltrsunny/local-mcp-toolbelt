@@ -17,20 +17,28 @@ throwing a C++ exception from a Metal command-buffer completion handler
 with no `try { } catch (...) { }` in the oMLX wrapper —
 `std::__terminate → abort()` tore down the inference server mid-request.
 Upgrading oMLX to HEAD (post-2026-05-11 — includes upstream PRs #1126
-OOM guard, #1146 async_eval cache-store, #1101 hot-cache flush) made
-the stress pattern stop reproducing. We also added a local
-`MlxHttpBackend` circuit-breaker so a future variant of this abort
-surface doesn't fail the in-flight HTTP request.
+OOM guard, #1146 async_eval cache-store, #1101 hot-cache flush) reduces
+the trigger rate considerably (classify-scale calls stop reproducing).
+**It does NOT add the missing try/catch**, so longer decodes still
+abort; the local `MlxHttpBackend` circuit-breaker (now covering both
+`fetch()` rejection and undici stream-`terminated`) is what makes the
+client side transparent through a launchd-managed restart. See the
+2026-05-11 15:08 correction note in
+`docs/notes/v0.5.x-omlx-stability-2026-05-11.md` for the third crash
+that triggered the marker-list expansion.
 
 ### Added
 
 - **`MlxHttpBackend` circuit-breaker**: when the underlying `fetch` fails
   with a connection-reset class error (ECONNRESET / ECONNREFUSED /
-  socket-hang-up / `fetch failed` from undici) — symptomatic of oMLX
-  aborting mid-request while launchd auto-restarts it — the backend
-  now polls `/health` for up to 5 s and retries the chat request once.
-  HTTP 4xx/5xx, JSON parse errors, and caller-cancelled aborts still
-  propagate immediately.
+  socket-hang-up / `fetch failed` from undici / undici `terminated` on
+  mid-stream abort) — symptomatic of oMLX aborting mid-request while
+  launchd auto-restarts it — the backend now polls `/health` for up to
+  5 s and retries the chat request once. HTTP 4xx/5xx, authentic JSON
+  parse errors, and caller-cancelled aborts still propagate immediately.
+  The `terminated` marker specifically covers the failure mode where
+  oMLX SIGABORTs during decode after headers have already been sent
+  (manifests as `TypeError: terminated` in `response.json()`).
 - Internal-only `_restartPollBudgetMs` / `_restartPollIntervalMs`
   `MlxHttpBackendOptions` for tests to override the 5 s / 200 ms defaults.
 
@@ -56,10 +64,14 @@ surface doesn't fail the in-flight HTTP request.
 - Crash diagnostics archived locally at `.claude/diagnostics/`
   (`.ips` files are gitignored; the `upstream-bug-report.md` draft is
   committed for future filing against `jundot/omlx`).
-- Tests: 151 unit (up from 147) — adds 4 cases for the new
-  circuit-breaker (success retry, no retry on HTTP 500, no retry on
-  caller-aborted signal, "did not recover" propagation when oMLX
-  never comes back within budget).
+- Tests: 152 unit (up from 147) — 5 cases for the circuit-breaker:
+  success retry on ECONNRESET, success retry on undici `terminated`,
+  no retry on HTTP 500, no retry on caller-aborted signal, "did not
+  recover" propagation when oMLX never comes back within budget.
+- Upstream status: the `check_error` exception path remains unguarded
+  in oMLX HEAD-3d62ea0. PRs #1126/#1146/#1101 reduce trigger
+  frequency but do not catch the exception. A user-visible report
+  to `jundot/omlx` is still recommended after this release.
 
 ---
 
