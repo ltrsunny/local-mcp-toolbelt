@@ -66,10 +66,10 @@ stay on B/C — long prefill+decode hit 60s wall. **MLX RSS is misleading**
 - **Claude Code MCP request timeout is a hardcoded ~60 s wall-clock.** Cannot be
   raised via `settings.json` or any documented env var. Per-call must stay
   under this wall. v0.3.0's async-job pattern is the structural fix.
-- **16 GB Mac is the dev hardware**. oMLX serializes on Metal (calls queue,
-  not parallelize). 8B+14B ≈ 13 GB resident — tight; one tier hot per
-  session. `hot_cache_max_size=10GB` in `~/.omlx/settings.json` (2026-05-11)
-  keeps Tier D warm → eliminates ~6s cold-load tax.
+- **16 GB Mac is the dev hardware**. oMLX serializes on Metal (calls queue).
+  8B+14B ≈ 13 GB resident — tight; one tier hot per session.
+  `hot_cache_max_size=6GB` in `~/.omlx/settings.json` (2026-05-11 — 10GB
+  triggered oMLX SIGABRT, see `docs/notes/v0.5.x-omlx-stability-2026-05-11.md`).
 - **Apache-2.0 license**. New deps must be permissive (Apache / MIT / BSD / ISC).
   Workspace-root `overrides.uuid` ^14 keeps `npm audit` clean.
 - **Node 22+, TypeScript strict, vitest, raw `tsc` build (no bundler)**. Unpacked

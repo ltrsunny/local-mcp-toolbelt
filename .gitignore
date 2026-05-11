@@ -22,3 +22,12 @@ coverage/
 # v0.5.0 eval harness — run outputs (one JSONL per matrix run).
 # Reports under docs/notes/ are committed; raw runs are not.
 packages/core/tests/eval/runs/
+
+# Apple crash reports (.ips) — contain machine UUIDs + user paths.
+# Keep locally in .claude/diagnostics/ for triage; never commit.
+.claude/diagnostics/*.ips
+
+# Broken / partial agent outputs (when a background CLI task was stopped
+# mid-run). Prompt files in the same dir ARE committed for replay.
+.claude/brainstorm/eval-result.md
+.claude/brainstorm/pa-mcp-result.md
