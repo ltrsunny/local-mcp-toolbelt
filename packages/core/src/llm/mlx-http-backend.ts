@@ -54,6 +54,15 @@ export interface MlxHttpBackendOptions {
    *   and cached for the backend lifetime.
    */
   modelName?: string;
+  /**
+   * @internal Override the circuit-breaker total wait budget (default 5000 ms).
+   * Used by tests to keep the "never recovers" path under vitest's 5s timeout.
+   */
+  _restartPollBudgetMs?: number;
+  /**
+   * @internal Override the circuit-breaker poll interval (default 200 ms).
+   */
+  _restartPollIntervalMs?: number;
 }
 
 /** Shape of the OpenAI-compatible request sent to the bridge server. */
@@ -133,15 +142,48 @@ function normalizeForStrictMode(
 }
 
 export class MlxHttpBackend implements LlmBackend {
+  /**
+   * Circuit-breaker constants for the oMLX-aborted-mid-request recovery
+   * path. See `chat()` doc-comment and
+   * `docs/notes/v0.5.x-omlx-stability-2026-05-11.md` for the failure
+   * mode this protects against.
+   */
+  private static readonly RESTART_POLL_INTERVAL_MS = 200;
+  private static readonly RESTART_POLL_BUDGET_MS = 5000;
+
+  /**
+   * Substrings on `Error.message` / `Error.code` / `Error.cause.*` that we
+   * treat as "server died mid-request" — i.e. eligible for one circuit-
+   * breaker retry after the launchd-managed oMLX has restarted. Anything
+   * else propagates unchanged (HTTP 4xx/5xx, JSON parse errors, etc.).
+   *
+   * Deliberately NOT included: our own "MlxHttpBackend: network error — …"
+   * wrapper text. If we matched that we'd retry on every fetch failure
+   * (TLS handshake, DNS, etc.), defeating the narrow purpose of the breaker.
+   */
+  private static readonly CONNECTION_RESET_MARKERS = [
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'socket hang up',
+    'UND_ERR_SOCKET',
+    'fetch failed', // Node 22 undici outer message for socket-level aborts
+  ];
+
   private readonly baseUrl: string;
   private readonly configuredModelName?: string;
   /** Cached after first auto-detect or set from configuredModelName. */
   private resolvedModelName?: string;
+  private readonly restartPollBudgetMs: number;
+  private readonly restartPollIntervalMs: number;
 
   constructor(opts: MlxHttpBackendOptions) {
     // Normalise: strip trailing slash once so every endpoint path is clean.
     this.baseUrl = opts.baseUrl.replace(/\/$/, '');
     this.configuredModelName = opts.modelName;
+    this.restartPollBudgetMs =
+      opts._restartPollBudgetMs ?? MlxHttpBackend.RESTART_POLL_BUDGET_MS;
+    this.restartPollIntervalMs =
+      opts._restartPollIntervalMs ?? MlxHttpBackend.RESTART_POLL_INTERVAL_MS;
     // numCtx is informational — stored in TierConfig, not needed at call time
     // (server-side context is fixed at model load). Not retained here.
   }
@@ -191,8 +233,39 @@ export class MlxHttpBackend implements LlmBackend {
    *
    * Honors the AbortSignal by passing it to `fetch`.  If the server returns
    * a non-2xx status, throws with the status + body for debuggability.
+   *
+   * **Circuit breaker**: when fetch fails with a connection-reset class
+   * error (ECONNRESET / socket hang up / "fetch failed") — the symptom of
+   * oMLX aborting mid-request while launchd auto-restarts it (see
+   * `docs/notes/v0.5.x-omlx-stability-2026-05-11.md`) — this poll-pings
+   * `/health` for up to 5s and, on recovery, retries the request exactly
+   * once. Other errors (HTTP 4xx/5xx, JSON parse, user-aborted signal,
+   * authentic refusals) propagate unchanged.
+   *
+   * This makes oMLX crashes recoverable from the caller's perspective at
+   * a ~5s worst-case latency tax, instead of a connection-reset error.
    */
   async chat(opts: ChatOptions, signal?: AbortSignal): Promise<ChatResult> {
+    try {
+      return await this._chatOnce(opts, signal);
+    } catch (err) {
+      // User-cancelled abort wins over circuit-breaker — don't second-guess
+      // the caller's intent.
+      if (signal?.aborted) throw err;
+      if (!MlxHttpBackend.isConnectionResetError(err)) throw err;
+      // oMLX likely SIGABORTed; launchd will restart. Wait briefly, then
+      // retry once. If still down or the retry also drops, the second
+      // error propagates as-is — we don't retry indefinitely.
+      await this.waitForRestart(signal);
+      return await this._chatOnce(opts, signal);
+    }
+  }
+
+  /**
+   * The actual single HTTP attempt — used by `chat()` and its retry path.
+   * Same observable behavior as the pre-circuit-breaker implementation.
+   */
+  private async _chatOnce(opts: ChatOptions, signal?: AbortSignal): Promise<ChatResult> {
     if (signal?.aborted) {
       throw new Error('MlxHttpBackend: aborted before fetch');
     }
@@ -308,5 +381,55 @@ export class MlxHttpBackend implements LlmBackend {
         `MlxHttpBackend: /health returned ${response.status} ${response.statusText}`,
       );
     }
+  }
+
+  /**
+   * Returns true if the error looks like the connection was severed by
+   * the *server* mid-request (as opposed to a 4xx/5xx response or a
+   * client-side abort). Walks the `Error.cause` chain (Node 22's fetch
+   * sometimes nests the underlying socket error one level deep).
+   */
+  private static isConnectionResetError(err: unknown): boolean {
+    let cur: unknown = err;
+    for (let depth = 0; depth < 4 && cur != null && typeof cur === 'object'; depth++) {
+      const msg = (cur as { message?: unknown }).message;
+      const code = (cur as { code?: unknown }).code;
+      const text = typeof msg === 'string' ? msg : '';
+      const codeText = typeof code === 'string' ? code : '';
+      const haystack = `${text} ${codeText}`;
+      if (MlxHttpBackend.CONNECTION_RESET_MARKERS.some((p) => haystack.includes(p))) {
+        return true;
+      }
+      cur = (cur as { cause?: unknown }).cause;
+    }
+    return false;
+  }
+
+  /**
+   * Poll `/health` until oMLX answers or the budget runs out. Sleeps
+   * `RESTART_POLL_INTERVAL_MS` between attempts. Respects the caller's
+   * AbortSignal so a chunked-summarize job's overall cancel can still
+   * unblock from inside the wait.
+   */
+  private async waitForRestart(signal?: AbortSignal): Promise<void> {
+    const deadline = Date.now() + this.restartPollBudgetMs;
+    while (Date.now() < deadline) {
+      if (signal?.aborted) {
+        throw new Error('MlxHttpBackend: aborted while waiting for oMLX restart');
+      }
+      try {
+        await this.ping();
+        return; // alive again
+      } catch {
+        // not yet — sleep and retry
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, this.restartPollIntervalMs),
+        );
+      }
+    }
+    throw new Error(
+      `MlxHttpBackend: oMLX did not recover within ${this.restartPollBudgetMs}ms ` +
+        `after suspected mid-request abort — original connection-reset error stands`,
+    );
   }
 }

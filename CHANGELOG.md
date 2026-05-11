@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.1] — 2026-05-11
+
+### Theme
+
+**"Stabilize against the oMLX SIGABRT abort surface."** Two crashes on
+2026-05-10 + 2026-05-11 traced to MLX's `mlx::core::gpu::check_error`
+throwing a C++ exception from a Metal command-buffer completion handler
+with no `try { } catch (...) { }` in the oMLX wrapper —
+`std::__terminate → abort()` tore down the inference server mid-request.
+Upgrading oMLX to HEAD (post-2026-05-11 — includes upstream PRs #1126
+OOM guard, #1146 async_eval cache-store, #1101 hot-cache flush) made
+the stress pattern stop reproducing. We also added a local
+`MlxHttpBackend` circuit-breaker so a future variant of this abort
+surface doesn't fail the in-flight HTTP request.
+
+### Added
+
+- **`MlxHttpBackend` circuit-breaker**: when the underlying `fetch` fails
+  with a connection-reset class error (ECONNRESET / ECONNREFUSED /
+  socket-hang-up / `fetch failed` from undici) — symptomatic of oMLX
+  aborting mid-request while launchd auto-restarts it — the backend
+  now polls `/health` for up to 5 s and retries the chat request once.
+  HTTP 4xx/5xx, JSON parse errors, and caller-cancelled aborts still
+  propagate immediately.
+- Internal-only `_restartPollBudgetMs` / `_restartPollIntervalMs`
+  `MlxHttpBackendOptions` for tests to override the 5 s / 200 ms defaults.
+
+### Changed
+
+- `~/.omlx/settings.json` `hot_cache_max_size`: documented safe value
+  lowered from `10GB` → `6GB` for 16 GB-Mac dev hardware (10 GB
+  triggered the abort surface above; 6 GB leaves the system ~4 GB
+  headroom while still keeping Tier D warm).
+- `CLAUDE.md` outside-help cheat-sheet: `copilot --yolo` now flagged as
+  required in `-p` mode — plain `--allow-all-tools` silently hangs
+  on permission prompts that headless mode can't answer.
+
+### Fixed
+
+- 16-minute permission-denied retry loop when `copilot -p` was launched
+  with only `--allow-all-tools` (covers tools, not paths or URLs).
+  `--yolo` (= `--allow-all-tools` + `--allow-all-paths` + `--allow-all-urls`)
+  is now the documented flag.
+
+### Notes
+
+- Crash diagnostics archived locally at `.claude/diagnostics/`
+  (`.ips` files are gitignored; the `upstream-bug-report.md` draft is
+  committed for future filing against `jundot/omlx`).
+- Tests: 151 unit (up from 147) — adds 4 cases for the new
+  circuit-breaker (success retry, no retry on HTTP 500, no retry on
+  caller-aborted signal, "did not recover" propagation when oMLX
+  never comes back within budget).
+
+---
+
 ## [0.5.0] — 2026-05-10
 
 ### Theme

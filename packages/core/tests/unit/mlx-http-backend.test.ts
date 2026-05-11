@@ -250,15 +250,19 @@ describe('MlxHttpBackend', () => {
     ).rejects.toThrow(/parse JSON/i);
   });
 
-  it('throws a network error when fetch rejects', async () => {
+  it('throws a network error when fetch rejects with a non-connection-reset error', async () => {
+    // Use an error string that DOESN'T match CONNECTION_RESET_MARKERS so
+    // the circuit breaker stays out of the path. A reset-class error
+    // would trigger waitForRestart instead — covered by the circuit-
+    // breaker describe block below.
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
+      vi.fn().mockRejectedValue(new Error('TLS handshake failed')),
     );
 
     await expect(
       backend.chat({ user: 'hi', maxInputTokens: 4096 }),
-    ).rejects.toThrow(/network error.*ECONNREFUSED/i);
+    ).rejects.toThrow(/network error.*TLS handshake/i);
   });
 
   // ── AbortSignal ───────────────────────────────────────────────────────
@@ -342,5 +346,79 @@ describe('MlxHttpBackend', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('connect ECONNREFUSED')));
 
     await expect(backend.ping()).rejects.toThrow(/unreachable/i);
+  });
+
+  // ── circuit breaker ───────────────────────────────────────────────────
+  // chat() retries exactly once when fetch fails with a connection-reset
+  // class error AND /health recovers within 5s. See
+  // docs/notes/v0.5.x-omlx-stability-2026-05-11.md for the failure mode.
+
+  describe('circuit breaker on connection-reset', () => {
+    it('retries chat once after ECONNRESET when oMLX recovers', async () => {
+      const fetchMock = vi.fn()
+        // 1st chat attempt: simulate oMLX SIGABORT mid-request
+        .mockRejectedValueOnce(
+          Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNRESET' } }),
+        )
+        // /health probe after launchd-restart succeeds
+        .mockResolvedValueOnce(makeOkResponse({ status: 'ok' }))
+        // 2nd chat attempt: succeeds
+        .mockResolvedValueOnce(makeOkResponse(chatResponse('retried-ok')));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await backend.chat({ user: 'hi', maxInputTokens: 1024 });
+
+      expect(result.text).toBe('retried-ok');
+      // 1st chat (ECONNRESET) + 1 /health probe + 2nd chat (ok) = 3
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('does NOT retry on HTTP 500 (real server response, not crash)', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(makeErrorResponse(500, 'oops'));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(backend.chat({ user: 'hi', maxInputTokens: 1024 })).rejects.toThrow(/500/);
+      // Exactly one attempt; circuit breaker stays out of HTTP-error paths.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT retry if signal was aborted at error time', async () => {
+      const controller = new AbortController();
+      const fetchMock = vi.fn().mockImplementation(() => {
+        controller.abort();
+        return Promise.reject(
+          Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNRESET' } }),
+        );
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(
+        backend.chat({ user: 'hi', maxInputTokens: 1024 }, controller.signal),
+      ).rejects.toThrow();
+      // Just the one failing chat attempt — caller-cancelled abort suppresses retry.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws "did not recover" if oMLX never comes back within the budget', async () => {
+      // Use the @internal budget/interval overrides to keep this test well
+      // under vitest's 5s timeout (default budget would be 5000 ms exactly).
+      const fastBackend = new MlxHttpBackend({
+        baseUrl: BASE_URL,
+        modelName: 'test-model',
+        _restartPollBudgetMs: 100,
+        _restartPollIntervalMs: 10,
+      });
+      const fetchMock = vi.fn().mockRejectedValue(
+        Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNRESET' } }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(
+        fastBackend.chat({ user: 'hi', maxInputTokens: 1024 }),
+      ).rejects.toThrow(/did not recover within 100ms/);
+      // 1 initial chat + several /health probes during the 100 ms budget +
+      // no second chat attempt because we never declared "alive again".
+      expect(fetchMock).toHaveBeenCalled();
+    });
   });
 });
