@@ -31,20 +31,21 @@ inline `text` because raw bytes never enter the frontier context.
 
 | Tier | Model | numCtx | Status |
 |---|---|---|---|
-| B | Qwen3-8B-4bit | 8192 | ✅ default — short tasks |
-| C | Qwen3-8B-4bit (same weights, longer ctx) | 32768 | ✅ long-form summarize |
+| B | Qwen3-4B-Instruct-2507-4bit | 8192 | ✅ default — short tasks |
+| C | Qwen3-8B-4bit | 32768 | ✅ long-form summarize |
 | D | Qwen3-14B-4bit | 16384 | ⚙️ Opt-in for classify + transform; toolTierMap override required |
 
 Single backend = `MlxHttpBackend` against `http://127.0.0.1:8000` (oMLX).
 Start oMLX:        `brew services start jundot/omlx/omlx`
 Download weights:  `npm run download-models` (uses oMLX's bundled Python).
 
-oMLX json_schema strict mode (verified 2026-05-07) replaces llama.cpp's GBNF
-grammar — enum constraints and required fields are enforced at decode time.
-Eval (2026-05-07): 14B at ~12-16 tok/s on 16 GB Mac → routable for short-output
-tools (classify ≤200 tok = 13s, transform ≤1200 tok = 46s). `summarize-long`
-and `extract` stay on B/C because long completion budgets exceed 60 s on 14B.
-See `docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md` §"Capped re-run".
+oMLX json_schema strict mode (verified 2026-05-07) replaces llama.cpp's GBNF —
+enum + required enforced at decode. Eval (2026-05-11, hot_cache=10GB): 14B
+**warm 1.1s @ ~30 tok/s** (was 12-16 cold). Routable for classify (~8s),
+short summarize (~20s), short transform (~45s). `summarize-long` + `extract`
+stay on B/C — long prefill+decode hit 60s wall. **MLX RSS is misleading**
+(unified-mem mapped, use wall-time). See
+`docs/notes/v0.6.0-60s-wall-brainstorm-2026-05-11.md`.
 
 ## Per-tool output caps (v0.5.0)
 
@@ -65,9 +66,10 @@ See `docs/scope-memos/v0.5.0-tier-d-eval-2026-05-06.md` §"Capped re-run".
 - **Claude Code MCP request timeout is a hardcoded ~60 s wall-clock.** Cannot be
   raised via `settings.json` or any documented env var. Per-call must stay
   under this wall. v0.3.0's async-job pattern is the structural fix.
-- **16 GB Mac is the dev hardware**. oMLX serializes generation on Metal so
-  concurrent calls queue, not parallelize. 8B + 14B simultaneously ≈ 13 GB
-  resident — usable but tight; one tier hot per session is the norm.
+- **16 GB Mac is the dev hardware**. oMLX serializes on Metal (calls queue,
+  not parallelize). 8B+14B ≈ 13 GB resident — tight; one tier hot per
+  session. `hot_cache_max_size=10GB` in `~/.omlx/settings.json` (2026-05-11)
+  keeps Tier D warm → eliminates ~6s cold-load tax.
 - **Apache-2.0 license**. New deps must be permissive (Apache / MIT / BSD / ISC).
   Workspace-root `overrides.uuid` ^14 keeps `npm audit` clean.
 - **Node 22+, TypeScript strict, vitest, raw `tsc` build (no bundler)**. Unpacked
