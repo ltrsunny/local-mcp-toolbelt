@@ -194,5 +194,7 @@ Quota emergency (Claude session > 85%): handoff via `/handoff-to-gemini` is the
   implementation)
 - `docs/prior-art/` — Prior Art Review outputs
 - `docs/notes/` — research notes (no Auditor required, lighter-weight)
+- `docs/process/commit-discipline.md` — **product** (`feat/fix/release/chore`)
+  vs **dev-meta** (`meta(*):`) commits, never mixed (since 2026-05-12).
 - `CHANGELOG.md` — Keep a Changelog format, SemVer. Version-sync enforced via
   `prepublishOnly`.

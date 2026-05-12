@@ -27,6 +27,10 @@ packages/core/tests/eval/runs/
 # Keep locally in .claude/diagnostics/ for triage; never commit.
 .claude/diagnostics/*.ips
 
+# Raw curl/oMLX responses captured for ad-hoc diagnostics (e.g. thinking-mode
+# probe outputs). Polished diagnostic docs in the same dir ARE committed.
+.claude/diagnostics/*-raw.json
+
 # Broken / partial agent outputs (when a background CLI task was stopped
 # mid-run). Prompt files in the same dir ARE committed for replay.
 .claude/brainstorm/eval-result.md
