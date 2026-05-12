@@ -3,6 +3,14 @@
   "version": "0.5.1",
   "description": "Local-first MCP toolbelt: delegates summarise/classify/extract/transform tasks from any MCP client to a local oMLX inference server. Apple Silicon, MLX-accelerated, KV-cache persistent.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ltrsunny/local-mcp-toolbelt.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ltrsunny/local-mcp-toolbelt/issues"
+  },
+  "homepage": "https://github.com/ltrsunny/local-mcp-toolbelt#readme",
   "type": "module",
   "main": "./dist/src/lib.js",
   "types": "./dist/src/lib.d.ts",
