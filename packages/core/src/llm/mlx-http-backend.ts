@@ -311,11 +311,23 @@ export class MlxHttpBackend implements LlmBackend {
       messages.push({ role: 'system', content: opts.system });
     }
     // Append `/no_think` to user content. Qwen3 thinking models (8B, 14B)
-    // honor this token to disable the `<think>...</think>` reasoning trace
-    // that would otherwise burn the per-tool MAX_OUTPUT_TOKENS cap before
-    // any real output. Non-thinking models (Qwen3-4B-Instruct-2507, Mistral,
-    // Phi-4) treat it as inert text.
-    messages.push({ role: 'user', content: `${opts.user}\n/no_think` });
+    // honor this token to disable the `<think>...</think>` reasoning trace.
+    // Non-thinking models (Qwen3-4B-Instruct-2507, Mistral, Phi-4) treat it
+    // as inert text.
+    //
+    // Why on by default: oMLX puts the reasoning trace in `reasoning_content`
+    // (separate from `content`, doesn't burn our MAX_OUTPUT_TOKENS cap), but
+    // it DOES add 30-80s of wall-clock latency to longer tasks — enough to
+    // exceed Claude Code's hardcoded 60s MCP request wall for transform /
+    // summarize-long. Until v0.6.0 ships the async-job pattern that makes
+    // >60s tool calls reachable, `/no_think` stays the safe default.
+    //
+    // Override: `OMCP_THINKING_MODE=on` removes the suffix (lets thinking
+    // models reason freely). Trades 30-80s extra latency for typically
+    // higher quality on reasoning-heavy tasks. Eval-only today.
+    const thinkingOn = process.env['OMCP_THINKING_MODE'] === 'on';
+    const userContent = thinkingOn ? opts.user : `${opts.user}\n/no_think`;
+    messages.push({ role: 'user', content: userContent });
 
     const modelName = await this.resolveModelName();
 
