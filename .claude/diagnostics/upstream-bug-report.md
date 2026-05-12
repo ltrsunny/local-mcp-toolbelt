@@ -1,5 +1,15 @@
 # oMLX upstream bug report — uncaught MLX Metal exception → process abort
 
+**Status:** **FILED 2026-05-12** as a sibling-data-point comment on
+existing issue jundot/omlx#1106 (cluster-grouped reporting per
+2026-05-12 search showing several related crashes without exact-stack
+duplicates). Comment URL:
+https://github.com/jundot/omlx/issues/1106#issuecomment-4428948799 .
+The polished comment body is at
+`.claude/diagnostics/upstream-1106-comment.md`. This draft is kept as
+the longer-form internal record; the published comment is the shorter
+public version.
+
 **Target:** https://github.com/jundot/omlx
 **Reporter:** rd (local-mcp-toolbelt project, 2026-05-11)
 **oMLX version observed:** 0.3.8 (built from source 2026-05-07)
@@ -136,10 +146,45 @@ This converts an unrecoverable crash into a recoverable HTTP 5xx — clients
 (like local-mcp-toolbelt's MlxHttpBackend) already retry/abort cleanly on
 HTTP errors.
 
+## Related existing issues (cross-link, NOT duplicate)
+
+This appears to be a sibling of a broader "unguarded Metal-related
+abort surface" cluster in oMLX. Surveyed open issues (2026-05-12)
+that share the pattern but reach the abort through a different code
+path:
+
+- **#1106** — `_extract_tensor_bytes SIGABRT on hybrid model with SSD
+  cache — reproducible on 0.3.8.x and 0.3.9.dev1`. Same SIGABRT outcome,
+  but the originator stack is `paged_ssd_cache.py:_extract_tensor_bytes
+  → save_block → store_cache → _async_store_cache_worker`. That issue
+  diagnoses an async tensor-lifetime race between the SSD writer thread
+  and MLX's GC. **The crash reported here is from a different entry
+  point** — `mlx::core::gpu::check_error` invoked from a Metal
+  `CommandBuffer::addCompletedHandler` block, not from the SSD cache
+  serializer. Same family of unguarded async-Metal exception, distinct
+  surface.
+- **#947** — `Server crashes when RAM is not sufficient for KV cache`.
+  Same RAM-pressure trigger (32 GB Mac there, 16 GB here). crash.log
+  is attached but the stack is not transcribed in the issue body, so
+  it's unclear whether the originator matches ours or #1106's.
+- **#1040** (2026-05-02) & **#1178** (2026-05-11) — generic `v0.3.8
+  crash` / `v0.3.9dev1 crash` reports from Chinese-speaking users with
+  crash.log attached. Body says "突然闪退" / "突然挂了" but no stack is
+  pasted inline. These may be either the cluster reported here or
+  #1106's; can't tell without reading the .log files.
+
+If maintainer prefers, this report can be **filed as a comment on
+#1106** instead of as a new issue, framed as "different entry point,
+same async-Metal-exception class". Either way the suggested fix
+(install `try/catch` around any path that calls `mlx::core::gpu::
+check_error`) is structural enough to cover both legs.
+
 ## Attached artifacts (kept locally, can share on request)
 
 - `.claude/diagnostics/oMLX-crash-100611.ips` (89 KB Apple `.ips` JSON)
 - `.claude/diagnostics/oMLX-crash-185307.ips` (94 KB Apple `.ips` JSON)
+- `.claude/diagnostics/oMLX-crash-150732-HEAD.ips` (93 KB Apple `.ips`,
+  the HEAD-3d62ea0 crash described in §"Crash 3")
 
 ## Side note (config that triggers it)
 
