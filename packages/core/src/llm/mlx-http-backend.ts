@@ -310,22 +310,29 @@ export class MlxHttpBackend implements LlmBackend {
     if (opts.system !== undefined) {
       messages.push({ role: 'system', content: opts.system });
     }
-    // Append `/no_think` to user content. Qwen3 thinking models (8B, 14B)
-    // honor this token to disable the `<think>...</think>` reasoning trace.
-    // Non-thinking models (Qwen3-4B-Instruct-2507, Mistral, Phi-4) treat it
-    // as inert text.
+    // Append `/no_think` to user content when reasoning trace must be
+    // suppressed. Qwen3 thinking models (8B, 14B) honor this token to
+    // disable the `<think>...</think>` reasoning trace; non-thinking models
+    // (Qwen3-4B-Instruct-2507, Mistral, Phi-4) treat it as inert text.
     //
-    // Why on by default: oMLX puts the reasoning trace in `reasoning_content`
-    // (separate from `content`, doesn't burn our MAX_OUTPUT_TOKENS cap), but
-    // it DOES add 30-80s of wall-clock latency to longer tasks — enough to
-    // exceed Claude Code's hardcoded 60s MCP request wall for transform /
-    // summarize-long. Until v0.6.0 ships the async-job pattern that makes
-    // >60s tool calls reachable, `/no_think` stays the safe default.
+    // Resolution order (v0.6.0+):
+    //   1. Explicit per-call `opts.disableThinking` (computed by server.ts
+    //      via `src/config/thinking-defaults.ts` resolver) — authoritative
+    //      when present.
+    //   2. Legacy env-var fallback `OMCP_THINKING_MODE=on` — used when the
+    //      caller doesn't compute via resolver (e.g. tests, eval harness).
+    //   3. Otherwise: suppress (append `/no_think`) — historical default.
     //
-    // Override: `OMCP_THINKING_MODE=on` removes the suffix (lets thinking
-    // models reason freely). Trades 30-80s extra latency for typically
-    // higher quality on reasoning-heavy tasks. Eval-only today.
-    const thinkingOn = process.env['OMCP_THINKING_MODE'] === 'on';
+    // Why disable-by-default historically: oMLX puts the trace in a separate
+    // `reasoning_content` field that doesn't burn our MAX_OUTPUT_TOKENS cap,
+    // but it adds 30-80 s wall-clock — risks Claude Code's 60 s MCP wall on
+    // longer tasks. The v0.6.0 async-job pattern makes long-decode reachable.
+    let thinkingOn: boolean;
+    if (opts.disableThinking !== undefined) {
+      thinkingOn = !opts.disableThinking;
+    } else {
+      thinkingOn = process.env['OMCP_THINKING_MODE'] === 'on';
+    }
     const userContent = thinkingOn ? opts.user : `${opts.user}\n/no_think`;
     messages.push({ role: 'user', content: userContent });
 

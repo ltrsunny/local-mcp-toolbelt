@@ -35,6 +35,19 @@ export interface ChatOptions {
    * GBNF — translation is the v0.3.0 LlamaCppBackend's responsibility).
    */
   format?: JsonSchemaLike;
+  /**
+   * Disable the model's reasoning trace (e.g. Qwen3 thinking-mode
+   * `<think>...</think>` output). When `true`, MlxHttpBackend appends
+   * `/no_think` to the user prompt; when `false`, the prompt is left
+   * alone and the model is free to reason. When `undefined`, backends
+   * fall back to their internal default (currently the env var
+   * `OMCP_THINKING_MODE`).
+   *
+   * Server.ts (v0.6.0+) computes this via the per-tool registry in
+   * `src/config/thinking-defaults.ts` so that callers don't have to
+   * know which models are thinking-capable. See scope memo v0.6.0 §4.
+   */
+  disableThinking?: boolean;
   // NOTE: `stopSequences` deferred until a real consumer needs it. v0.3.0
   // LlamaCppBackend may surface it; until then keep the interface minimal.
 }

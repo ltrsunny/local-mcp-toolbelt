@@ -2,6 +2,7 @@
 
 exports[`migration snapshot — pre-migration baseline > classify: allow_multiple + explain 1`] = `
 {
+  "disableThinking": false,
   "format": {
     "properties": {
       "labels": {
@@ -36,6 +37,7 @@ exports[`migration snapshot — pre-migration baseline > classify: allow_multipl
 
 exports[`migration snapshot — pre-migration baseline > classify: single label, no explain 1`] = `
 {
+  "disableThinking": false,
   "format": {
     "properties": {
       "labels": {
@@ -66,6 +68,7 @@ exports[`migration snapshot — pre-migration baseline > classify: single label,
 
 exports[`migration snapshot — pre-migration baseline > extract: flat schema with required fields 1`] = `
 {
+  "disableThinking": false,
   "format": {
     "properties": {
       "customer_name": {
@@ -95,6 +98,7 @@ exports[`migration snapshot — pre-migration baseline > extract: flat schema wi
 
 exports[`migration snapshot — pre-migration baseline > extract: schema with constraints that get stripped (pattern, format:email) 1`] = `
 {
+  "disableThinking": false,
   "format": {
     "properties": {
       "email": {
@@ -121,6 +125,7 @@ exports[`migration snapshot — pre-migration baseline > extract: schema with co
 
 exports[`migration snapshot — pre-migration baseline > summarize: text + style hint 1`] = `
 {
+  "disableThinking": true,
   "maxInputTokens": 8192,
   "maxOutputTokens": 600,
   "system": "You are a precise summarizer. Produce a single-paragraph summary in plain prose. Do not editorialize. Do not add information not in the source. Match the language of the source text. If a style hint is provided, honor it (e.g. "one sentence", "for a non-technical reader", "bullet points").",
@@ -134,6 +139,7 @@ A short paragraph about cats sleeping in the sun.",
 
 exports[`migration snapshot — pre-migration baseline > summarize: text only, no style 1`] = `
 {
+  "disableThinking": true,
   "maxInputTokens": 8192,
   "maxOutputTokens": 600,
   "system": "You are a precise summarizer. Produce a single-paragraph summary in plain prose. Do not editorialize. Do not add information not in the source. Match the language of the source text. If a style hint is provided, honor it (e.g. "one sentence", "for a non-technical reader", "bullet points").",
@@ -145,6 +151,7 @@ A short paragraph about cats sleeping in the sun.",
 
 exports[`migration snapshot — pre-migration baseline > summarize-long: text only 1`] = `
 {
+  "disableThinking": true,
   "maxInputTokens": 32768,
   "maxOutputTokens": 1200,
   "system": "You are a careful summarizer of long documents. Produce a structured summary: first 1-2 sentences giving the core claim, then 3-6 short bullet points covering the supporting detail. Preserve the source language. Do not invent facts. If the source is very long, prioritize the opening, any explicit conclusion, and named entities / numbers. If the source is itself bullet-structured, collapse related bullets into themes — never mirror the source structure. Never exceed 6 bullets in the output regardless of source length.",
@@ -156,6 +163,7 @@ A document. A document. A document. A document. A document. A document. A docume
 
 exports[`migration snapshot — pre-migration baseline > transform: instruction + text 1`] = `
 {
+  "disableThinking": false,
   "maxInputTokens": 8192,
   "maxOutputTokens": 1200,
   "system": "Apply the instruction to the text. Return ONLY the transformed text, with no commentary, no preamble, no explanation. Preserve the source language unless the instruction explicitly says otherwise.",

@@ -13,6 +13,7 @@ import { BridgeDefense } from './defense.js';
 import { sanitizeSchemaForStrictMode } from './sanitize.js';
 import { readSource, readSourceOptionsFromEnv } from '../io/sourceReader.js';
 import { backendForTool } from './backend-factory.js';
+import { resolveThinking } from '../config/thinking-defaults.js';
 import { chunkedSummarize } from '../chunking/map-reduce.js';
 import { parseDiffText, deriveTestCoverageHint, formatParsedDiffForPrompt } from '../diff/parse.js';
 import type { JobRegistry } from '../jobs/registry.js';
@@ -342,6 +343,7 @@ export function buildBridgeServer(
             temperature: 0.2,
             maxInputTokens: tierCfg.numCtx ?? 8192,
             maxOutputTokens: MAX_OUTPUT_TOKENS.summarize,
+            disableThinking: resolveThinking('summarize') === 'off',
           },
           extra.signal,
         );
@@ -428,6 +430,7 @@ export function buildBridgeServer(
             temperature: 0.2,
             maxInputTokens: tierCfg.numCtx ?? 8192,
             maxOutputTokens: MAX_OUTPUT_TOKENS['summarize-long'],
+            disableThinking: resolveThinking('summarize-long') === 'off',
           },
           extra.signal,
         );
@@ -648,6 +651,7 @@ export function buildBridgeServer(
             maxInputTokens: tierCfg.numCtx ?? 8192,
             format: formatSchema,
             maxOutputTokens: MAX_OUTPUT_TOKENS.classify,
+            disableThinking: resolveThinking('classify') === 'off',
           },
           extra.signal,
         );
@@ -745,6 +749,7 @@ export function buildBridgeServer(
             maxInputTokens: tierCfg.numCtx ?? 8192,
             format: sanitized.schema,
             maxOutputTokens: MAX_OUTPUT_TOKENS.extract,
+            disableThinking: resolveThinking('extract') === 'off',
           },
           extra.signal,
         );
@@ -840,6 +845,7 @@ export function buildBridgeServer(
             temperature: 0.3,
             maxInputTokens: tierCfg.numCtx ?? 8192,
             maxOutputTokens: MAX_OUTPUT_TOKENS.transform,
+            disableThinking: resolveThinking('transform') === 'off',
           },
           extra.signal,
         );
@@ -964,6 +970,7 @@ export function buildBridgeServer(
             maxInputTokens: tierCfg.numCtx ?? 8192,
             format: sanitized.schema,
             maxOutputTokens: MAX_OUTPUT_TOKENS['diff-semantic-index'],
+            disableThinking: resolveThinking('diff-semantic-index') === 'off',
           },
           extra.signal,
         );
