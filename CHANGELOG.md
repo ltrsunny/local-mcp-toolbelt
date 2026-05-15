@@ -7,6 +7,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.0] — TBD
+
+### Theme
+
+**"Async-job triad portable across MCP clients + per-tool thinking
+mode."** v0.3.0 shipped `enqueue-job` (kebab) + `wait_for_job`
+(long-poll) + `read_job_result`, but the long-poll path needs RFC 6202
+support on the client side and the implicit "client has a Bash tool"
+assumption was Claude-Code-only. v0.6.0 splits the triad into a
+portable pair (`enqueue_job` + `check_progress`) plus optional
+Claude-Code shortcuts (`wait_command` returned in `enqueue_job`'s
+response, an inline `read_job_result` mode under the 8 KB threshold).
+Per-tool thinking mode is now a first-class input on every sync tool
+plus an `enqueue_job` field — server resolves to a concrete `on/off`
+and persists `thinking_resolved` into job metadata + hashes it into
+the dedup key. See `docs/scope-memos/v0.6.0-async-and-thinking-2026-05-11.md`
+for the full Draft 2 spec and `docs/scope-memos/v0.7.0-bridge-enforcement-2026-05-15.md`
+for the v0.7+ enforcement direction extracted from this cycle's
+dogfood pain.
+
+### Added
+
+- **`enqueue_job`** (snake-case, sister of `wait_for_job` /
+  `read_job_result`). Strict superset of v0.3.0 `enqueue-job`:
+  returns `job_id`, `enqueued_at`, `expires_at`, `result_uri`
+  (`file://...<id>.md`), `thinking_resolved` (concrete `on`/`off`),
+  and — only when the client advertises bash capability via
+  `OMCP_ASSUME_BASH_CLIENT=1` — a `wait_command` POSIX one-liner
+  (single-quoted to defend against shell metachars in
+  `OMCP_MEMORY_DIR` overrides).
+- **`check_progress`** — cross-client universal poll. Instant
+  return, no long-poll dependency, no bash dependency. Returns
+  `{status: queued|running|done|failed|unknown, progress?, error?}`.
+  Clamps `progress` to `[0, 100]` when handler emits
+  `current > total` (adversarial-review fix).
+- **`read_job_result` inline/file_path mode** — small results
+  (≤ `OMCP_INLINE_THRESHOLD_BYTES`, default 8192) return body inline;
+  larger results return `{file_path}` so the caller can read on
+  demand.
+- **Per-tool thinking-mode resolver**
+  (`src/config/thinking-defaults.ts`). Registry of default thinking
+  `on/off` per tool: `classify` / `extract` / `transform` /
+  `diff-semantic-index` default on; `summarize` / `summarize-long` /
+  `summarize-long-chunked` default off. `resolveThinking()` picks
+  the value: per-call > env (`OMCP_THINKING_<TOOL>`,
+  `OMCP_THINKING_MODE`) > registry default.
+- **`thinking` parameter on the 6 sync tools** (`'on'|'off'|'auto'`).
+- **`MlxHttpBackend` honours `opts.disableThinking`** to suppress
+  the model's reasoning trace (faster; used by summarize tools by
+  default).
+- **`bashSingleQuote()`** helper for wait_command shell escaping
+  (POSIX-only — no `[[` or zsh-isms).
+
+### Changed
+
+- **`wait_for_job` description marked DEPRECATED** — recommend
+  `check_progress` for portable polling or `wait_command` for the
+  Claude-Code-only Bash fast-path. Still maintained through v0.6.x;
+  removal in a future major.
+- **`enqueue-job` (kebab-case) description marked DEPRECATED** —
+  recommend `enqueue_job` (snake-case). Still maintained through
+  v0.6.x for backward compat.
+- **Job runner deep-clones args** via `structuredClone()` before
+  invoking the wrapped tool — defends against handler mutation of
+  nested objects in `args` (adversarial-review fix; 3/3 voices in
+  gem/copilot/nv_pro flagged the prior shallow spread as race-prone).
+- **`enqueue_job` dedup hash includes `thinking_resolved`** — same
+  tool + args + thinking returns the same `job_id`; same tool + args
+  + different thinking returns a different `job_id`.
+
+### Notes
+
+- **Forward-compat with MCP Tasks SEP-2663**: the v0.6.0 async triad
+  is a temporary compat layer for clients that don't yet support
+  native task return. When SEP stabilises and a major client ships
+  native support, the triad sunsets entirely (the 6 sync tools plug
+  in directly — they already accept `thinking`).
+- Tests: 147 → ~170 unit. New coverage for `enqueue_job` v0.6.0
+  shape, `check_progress` status + clamp, runner deep-clone,
+  thinking-resolver registry + env overrides, `wait_command` quoting.
+- **Bridge enforcement hook** introduced in v0.5.0 was extended this
+  cycle to also gate project-internal "analysis paths" (.claude/
+  brainstorm, .claude/diagnostics, docs/notes, docs/scope-memos,
+  docs/prior-art) and data-file extensions (*.log, *.diff, *.jsonl,
+  *.ips, *.ndjson, *.csv) above 4 KB. Seed for the v0.7+ scope memo
+  on shipping `omcp install-hooks` as a first-class product feature.
+
+### Upstream (no code in this release)
+
+- `jundot/omlx#1106` — three follow-ups posted this cycle bringing
+  Metal command-buffer OOM error code
+  (`kIOGPUCommandBufferCallbackErrorOutOfMemory`, IOKit 0x00000008)
+  to the maintainer's attention. Persistent stderr mirror at
+  `~/.omlx-persistent.log` (set up 2026-05-12) captured the first
+  clean exception text on 2026-05-15.
+
+---
+
 ## [0.5.1] — 2026-05-11
 
 ### Theme

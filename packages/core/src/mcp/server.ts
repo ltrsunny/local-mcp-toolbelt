@@ -1094,8 +1094,9 @@ export function buildBridgeServer(
     server.registerTool(
       'wait_for_job',
       {
-        title: 'Long-poll for async job completion',
+        title: 'Long-poll for async job completion (v0.3.0; deprecated by check_progress in v0.6.0)',
         description:
+          '[DEPRECATED in v0.6.0] Prefer `check_progress` (portable across MCP clients, instant return) or the `wait_command` Bash one-liner returned by `enqueue_job` when your client advertises bash. Still maintained for v0.3.0 callers through v0.6.x; planned removal in a future major. ' +
           'Block up to max_wait_ms (default and server-cap 45 s, OMCP_WAIT_CAP_MS overrides up to 50 s) for an enqueued job to finish. Returns immediately when the job becomes done/failed. If the cap is reached, returns status: running so the caller can call again. Cap is below the 60 s MCP wall to leave margin for transport round-trip + event-loop lag under heavy Ollama load. ' +
           'Client-disconnect resilience: if the calling MCP client aborts mid-wait, the underlying job continues — re-attach via another wait_for_job(same_id) or read_job_result.',
         inputSchema: {
@@ -1339,8 +1340,9 @@ export function buildBridgeServer(
     server.registerTool(
       'enqueue-job',
       {
-        title: 'Enqueue a long-running tool call as a background job',
+        title: 'Enqueue a long-running tool call as a background job (v0.3.0; deprecated by enqueue_job in v0.6.0)',
         description:
+          '[DEPRECATED in v0.6.0] Prefer `enqueue_job` (snake-case sister, strict superset: returns `result_uri` + `thinking_resolved`, accepts per-call `thinking` mode, ships `wait_command` Bash fast-path when client advertises bash capability). Still maintained for v0.3.0 callers through v0.6.x; planned removal in a future major. ' +
           'DELEGATION GUIDANCE: use this when a regular tool call would exceed your MCP client request timeout (Claude Code: ~60 s). The job is persisted to .memory/jobs/ and runs in the background; you receive a job_id immediately. Then use wait_for_job to long-poll for completion or read_job_result to fetch the persisted result. ' +
           'TYPICAL USE: summarize-long-chunked on documents > 25 K words; any extract/transform on large source_uri inputs. ' +
           'Idempotency: enqueue-job dedupes by hash(tool_name + args) — repeated calls with identical args while a prior job is still queued/running return the existing job_id, not a fresh one.',
