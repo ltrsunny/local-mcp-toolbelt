@@ -1,0 +1,9 @@
+Option C is the most pragmatic choice.
+
+For a project whose PM explicitly rejects soft-rule slippage, reverting to a persistent exemption (Option B) or relying on warnings (Option E) violates the core discipline the hook was built to enforce. However, Option A imposes a severe workflow penalty—forcing a 4B model to byte-perfectly extract chunks for `old_string` matching is fragile and guarantees immediate, compounding friction during active editing sessions.
+
+Option C (Per-session env override) elegantly bridges this gap. It preserves the default-secure stance of the hook by treating scope memos as analysis paths by default, correctly routing "for-understanding" reads through the bridge. Crucially, it shifts the "for-Edit" exemption from a silent, persistent hole in the rules to a deliberate, session-level opt-in (`OMCP_HOOK_EXTRA_ALLOWED_PREFIXES`).
+
+The realistic friction cost here is minimal but intentional. A developer must recognize they are entering an intensive design-editing phase and restart the session with the override flag. This friction is a feature, not a bug: it forces conscious acknowledgment of the rule bypass without breaking the bridge's core promises.
+
+The "for-Edit vs for-understanding" distinction cannot and should not be solved via hook complexity. The hook lacks the context of the user's intent (whether the read is to establish context or to satisfy edit prerequisites). Pushing intent-guessing into the hook bloats the tool and risks unpredictable failures. Option C leans on user-side discipline but enforces it structurally: the system defaults to strict boundary enforcement, and the user must explicitly declare their intent to bypass it for the duration of a specific task.
