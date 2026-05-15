@@ -1,0 +1,747 @@
+diff --git a/packages/core/src/chunking/map-reduce.ts b/packages/core/src/chunking/map-reduce.ts
+index be3d694..2dccb38 100644
+--- a/packages/core/src/chunking/map-reduce.ts
++++ b/packages/core/src/chunking/map-reduce.ts
+@@ -116,6 +116,14 @@ export interface ChunkedSummarizeOptions {
+   chunkOverlap?: number;
+   /** Override default fan-out concurrency (env: OMCP_CHUNK_CONCURRENCY). */
+   concurrency?: number;
++  /**
++   * Forwarded to every internal `backend.chat()` call (fast-path, MAP,
++   * REDUCE, partial-REDUCE, recursive REDUCE). When `true`, suppresses
++   * the model's reasoning trace (`/no_think` suffix). When `false`,
++   * thinking is allowed. When `undefined`, the backend falls back to
++   * env-var / its own default. v0.6.0+.
++   */
++  disableThinking?: boolean;
+   /** Optional progress callback wired to MCP `sendProgress`. */
+   onProgress?: (msg: string, current: number, total: number) => void | Promise<void>;
+ }
+@@ -251,6 +259,7 @@ async function runFastPath(
+       user: fastPathUserPrompt(opts.source, opts.style),
+       temperature: 0.2,
+       maxInputTokens: opts.maxInputTokens,
++      disableThinking: opts.disableThinking,
+     },
+     callSignal,
+   );
+@@ -283,6 +292,7 @@ async function runSingleChunk(
+       temperature: 0.2,
+       maxInputTokens: chunkSize + PROMPT_OVERHEAD_TOKENS,
+       maxOutputTokens: MAP_OUTPUT_BUDGET,
++      disableThinking: opts.disableThinking,
+     },
+     callSignal,
+   );
+@@ -341,6 +351,7 @@ async function runMapPhase(
+               temperature: 0.2,
+               maxInputTokens: chunkSize + PROMPT_OVERHEAD_TOKENS,
+               maxOutputTokens: MAP_OUTPUT_BUDGET,
++              disableThinking: opts.disableThinking,
+             },
+             callSignal,
+           );
+@@ -420,6 +431,7 @@ async function reduceRecursive(
+           temperature: 0.2,
+           maxInputTokens: REDUCE_BUCKET_TOKENS + PROMPT_OVERHEAD_TOKENS,
+           maxOutputTokens: REDUCE_OUTPUT_BUDGET,
++          disableThinking: opts.disableThinking,
+         },
+         callSignal,
+       );
+@@ -490,6 +502,7 @@ async function reduceRecursive(
+           temperature: 0.2,
+           maxInputTokens: REDUCE_BUCKET_TOKENS + PROMPT_OVERHEAD_TOKENS,
+           maxOutputTokens: REDUCE_OUTPUT_BUDGET,
++          disableThinking: opts.disableThinking,
+         },
+         callSignal,
+       );
+@@ -560,6 +573,7 @@ async function reduceRecursive(
+               // Intermediate reduces use MAP-sized output (terser);
+               // final-pass output uses the larger budget.
+               maxOutputTokens: MAP_OUTPUT_BUDGET,
++              disableThinking: opts.disableThinking,
+             },
+             callSignal,
+           );
+diff --git a/packages/core/src/config/thinking-defaults.ts b/packages/core/src/config/thinking-defaults.ts
+new file mode 100644
+index 0000000..a48b9e8
+--- /dev/null
++++ b/packages/core/src/config/thinking-defaults.ts
+@@ -0,0 +1,112 @@
++import { z } from 'zod';
++
++/**
++ * Per-tool thinking-mode defaults + resolver.
++ *
++ * Implements scope memo v0.6.0 §4. Each MCP tool has a baseline opinion
++ * about whether the underlying model should produce a reasoning trace
++ * (`<think>...</think>` for Qwen3 thinking models, etc.), based on
++ * Phase 1 + thinking-mode subset eval data:
++ *
++ *   classify / extract / transform / diff-semantic-index → ON
++ *     reasoning helps structured / decision-bound tasks
++ *     (transform showed +1.0 score lift in the thinking-mode subset)
++ *
++ *   summarize / summarize-long / summarize-long-chunked → OFF
++ *     prose tasks lose ~0.5 score with thinking on (over-generation,
++ *     style drift, formatting violations)
++ *
++ * Resolution order (highest priority first):
++ *   1. Per-call explicit value ('on'|'off') — overrides everything
++ *   2. Per-tool env var `OMCP_THINKING_<TOOL_NAME>` (uppercased + underscored)
++ *   3. Global env var `OMCP_THINKING_MODE`
++ *   4. Per-tool registry default (this file)
++ *
++ * `'auto'` and `undefined` per-call values fall through to env vars and
++ * then the registry — there is no runtime "model decides" path in v0.6.0;
++ * `'auto'` is intentionally a deterministic alias for the registry default.
++ */
++
++/**
++ * Thinking mode as exposed on tool surface APIs.
++ *
++ * - `'on'`: force the model to emit a reasoning trace (no `/no_think`)
++ * - `'off'`: suppress reasoning (`/no_think` appended)
++ * - `'auto'`: defer to env-var + registry resolution (= the v0.6.0 default)
++ */
++export type ThinkingMode = 'on' | 'off' | 'auto';
++
++/**
++ * Reusable zod schema fragment for the `thinking` input field that v0.6.0
++ * adds to every existing tool's input schema (scope memo §4). All tools
++ * import this rather than defining their own `z.enum(...)` to keep the
++ * description and value set consistent.
++ */
++export const ThinkingInputSchema = z
++  .enum(['on', 'off', 'auto'])
++  .optional()
++  .describe(
++    'Override the server-side per-tool thinking-mode default for this call. ' +
++      '"on" forces the model to emit a reasoning trace (slower; tends to help ' +
++      'reasoning-heavy tasks like classify / extract / transform). ' +
++      '"off" suppresses the trace (faster; tends to help prose tasks like summarize*). ' +
++      '"auto" (or omitted) falls back to env vars OMCP_THINKING_<TOOL> / ' +
++      'OMCP_THINKING_MODE and then the registry default. See ' +
++      'src/config/thinking-defaults.ts for the registry.',
++  );
++
++/**
++ * Per-tool baseline opinions. Tool names match the MCP tool names exactly
++ * (kebab-case, not the env-var form).
++ */
++export const THINKING_DEFAULTS: Readonly<Record<string, 'on' | 'off'>> = {
++  // Structured / decision-bound — reasoning helps
++  classify: 'on',
++  extract: 'on',
++  transform: 'on',
++  'diff-semantic-index': 'on',
++  // Prose — reasoning hurts
++  summarize: 'off',
++  'summarize-long': 'off',
++  'summarize-long-chunked': 'off',
++} as const;
++
++/**
++ * Convert a kebab-case tool name to its env-var key.
++ *
++ * @example envKeyFor('summarize-long')        // 'OMCP_THINKING_SUMMARIZE_LONG'
++ * @example envKeyFor('diff-semantic-index')   // 'OMCP_THINKING_DIFF_SEMANTIC_INDEX'
++ */
++export function envKeyFor(toolName: string): string {
++  return `OMCP_THINKING_${toolName.toUpperCase().replace(/-/g, '_')}`;
++}
++
++/**
++ * Resolve the effective thinking mode for a tool call.
++ *
++ * @param toolName MCP tool name (kebab-case)
++ * @param perCall  Optional per-call value (typically from the tool's
++ *                 input arg `thinking`). `'auto'` and `undefined` fall
++ *                 through to env-var / registry resolution.
++ * @returns `'on'` or `'off'` — never `'auto'` (always resolved concretely).
++ *          Tools not in the registry default to `'off'` (safer for unknown
++ *          tools: avoid the wall-clock cost until someone explicitly opts in).
++ */
++export function resolveThinking(
++  toolName: string,
++  perCall?: ThinkingMode,
++): 'on' | 'off' {
++  // 1. Per-call explicit value wins
++  if (perCall === 'on' || perCall === 'off') return perCall;
++
++  // 2. Per-tool env var
++  const perToolEnv = process.env[envKeyFor(toolName)];
++  if (perToolEnv === 'on' || perToolEnv === 'off') return perToolEnv;
++
++  // 3. Global env var
++  const globalEnv = process.env['OMCP_THINKING_MODE'];
++  if (globalEnv === 'on' || globalEnv === 'off') return globalEnv;
++
++  // 4. Registry default — fall back to 'off' for unknown tools
++  return THINKING_DEFAULTS[toolName] ?? 'off';
++}
+diff --git a/packages/core/src/jobs/registry.ts b/packages/core/src/jobs/registry.ts
+index 0abbca6..7b26253 100644
+--- a/packages/core/src/jobs/registry.ts
++++ b/packages/core/src/jobs/registry.ts
+@@ -91,9 +91,12 @@ export class JobRegistry extends EventEmitter {
+     toolName: string,
+     args: Record<string, unknown>,
+     ttl_days = 7,
++    thinking_resolved?: 'on' | 'off',
+   ): Promise<JobMetadata> {
+     if (this.dedupEnabled) {
+-      const h = hashRequest(toolName, args);
++      // Hash includes thinking_resolved so two enqueues differing only by
++      // thinking mode are distinct jobs (different runtime behavior).
++      const h = hashRequest(toolName, args, thinking_resolved);
+       const existingId = this.inflightHashes.get(h);
+       if (existingId) {
+         const existing = this.active.get(existingId);
+@@ -110,6 +113,7 @@ export class JobRegistry extends EventEmitter {
+         status: 'queued',
+         enqueued_at: new Date().toISOString(),
+         ttl_days,
++        ...(thinking_resolved !== undefined ? { thinking_resolved } : {}),
+       };
+       // Persist FIRST, then mutate in-memory state. If writeMetadata throws
+       // (full disk, ENOSPC, EIO), in-memory state stays clean — caller sees
+@@ -132,6 +136,7 @@ export class JobRegistry extends EventEmitter {
+       status: 'queued',
+       enqueued_at: new Date().toISOString(),
+       ttl_days,
++      ...(thinking_resolved !== undefined ? { thinking_resolved } : {}),
+     };
+     await this.store.writeMetadata(meta);
+     this.active.set(job_id, meta);
+@@ -159,7 +164,8 @@ export class JobRegistry extends EventEmitter {
+     if (next.status === 'done' || next.status === 'failed') {
+       this.active.delete(job_id);
+       // Clear the dedup entry — same args become eligible to re-enqueue.
+-      const h = hashRequest(next.tool_name, next.args);
++      // Hash must include thinking_resolved (same shape used by enqueue()).
++      const h = hashRequest(next.tool_name, next.args, next.thinking_resolved);
+       if (this.inflightHashes.get(h) === job_id) {
+         this.inflightHashes.delete(h);
+       }
+@@ -198,9 +204,24 @@ export class JobRegistry extends EventEmitter {
+   }
+ }
+ 
+-/** Stable hash of (tool_name + canonically-keyed args). For dedup only. */
+-function hashRequest(toolName: string, args: Record<string, unknown>): string {
+-  const canonical = JSON.stringify({ t: toolName, a: sortKeys(args) });
++/**
++ * Stable hash of (tool_name + canonically-keyed args + optional
++ * thinking_resolved). For dedup only.
++ *
++ * `thinking_resolved` is part of the hash because two enqueues differing
++ * only by thinking mode produce different runtime behavior (different
++ * `/no_think` suffix → different model output). They are distinct jobs.
++ */
++function hashRequest(
++  toolName: string,
++  args: Record<string, unknown>,
++  thinking_resolved?: 'on' | 'off',
++): string {
++  const canonical = JSON.stringify({
++    t: toolName,
++    a: sortKeys(args),
++    ...(thinking_resolved !== undefined ? { th: thinking_resolved } : {}),
++  });
+   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
+ }
+ 
+diff --git a/packages/core/src/jobs/runner.ts b/packages/core/src/jobs/runner.ts
+index 9137dcd..0d17d00 100644
+--- a/packages/core/src/jobs/runner.ts
++++ b/packages/core/src/jobs/runner.ts
+@@ -78,7 +78,15 @@ export class JobRunner {
+     const { extra } = createProgressCapture(this.registry, job.job_id);
+ 
+     try {
+-      const result = await this.invoker(job.tool_name, job.args, extra);
++      // Inject thinking mode into args before invoking the wrapped tool,
++      // so it sees the same `thinking` field a sync caller would have set.
++      // Only set when the registry resolved a concrete on/off — leaves the
++      // wrapped tool to its own registry default otherwise. v0.6.0+.
++      const argsForInvoke: Record<string, unknown> =
++        job.thinking_resolved !== undefined
++          ? { ...job.args, thinking: job.thinking_resolved }
++          : job.args;
++      const result = await this.invoker(job.tool_name, argsForInvoke, extra);
+       const text = result.content
+         .filter((c) => c.type === 'text')
+         .map((c) => c.text)
+diff --git a/packages/core/src/jobs/store.ts b/packages/core/src/jobs/store.ts
+index fd37f97..3e0c5d4 100644
+--- a/packages/core/src/jobs/store.ts
++++ b/packages/core/src/jobs/store.ts
+@@ -59,6 +59,14 @@ export interface JobMetadata {
+   footer?: string;
+   /** Whether the `<id>.md` result body has been written yet. */
+   has_result_md?: boolean;
++  /**
++   * The thinking-mode value resolved at enqueue time (via
++   * `resolveThinking()` in `src/config/thinking-defaults.ts`). When set,
++   * the runner injects `thinking: thinking_resolved` into the wrapped
++   * tool's `args` dict before invocation, so the underlying tool runs
++   * with the caller's intended thinking mode. v0.6.0+.
++   */
++  thinking_resolved?: 'on' | 'off';
+ }
+ 
+ export interface JobStoreOptions {
+diff --git a/packages/core/src/llm/backend.ts b/packages/core/src/llm/backend.ts
+index 67df172..1260522 100644
+--- a/packages/core/src/llm/backend.ts
++++ b/packages/core/src/llm/backend.ts
+@@ -35,6 +35,19 @@ export interface ChatOptions {
+    * GBNF — translation is the v0.3.0 LlamaCppBackend's responsibility).
+    */
+   format?: JsonSchemaLike;
++  /**
++   * Disable the model's reasoning trace (e.g. Qwen3 thinking-mode
++   * `<think>...</think>` output). When `true`, MlxHttpBackend appends
++   * `/no_think` to the user prompt; when `false`, the prompt is left
++   * alone and the model is free to reason. When `undefined`, backends
++   * fall back to their internal default (currently the env var
++   * `OMCP_THINKING_MODE`).
++   *
++   * Server.ts (v0.6.0+) computes this via the per-tool registry in
++   * `src/config/thinking-defaults.ts` so that callers don't have to
++   * know which models are thinking-capable. See scope memo v0.6.0 §4.
++   */
++  disableThinking?: boolean;
+   // NOTE: `stopSequences` deferred until a real consumer needs it. v0.3.0
+   // LlamaCppBackend may surface it; until then keep the interface minimal.
+ }
+diff --git a/packages/core/src/llm/mlx-http-backend.ts b/packages/core/src/llm/mlx-http-backend.ts
+index 669387a..3c1a594 100644
+--- a/packages/core/src/llm/mlx-http-backend.ts
++++ b/packages/core/src/llm/mlx-http-backend.ts
+@@ -310,22 +310,29 @@ export class MlxHttpBackend implements LlmBackend {
+     if (opts.system !== undefined) {
+       messages.push({ role: 'system', content: opts.system });
+     }
+-    // Append `/no_think` to user content. Qwen3 thinking models (8B, 14B)
+-    // honor this token to disable the `<think>...</think>` reasoning trace.
+-    // Non-thinking models (Qwen3-4B-Instruct-2507, Mistral, Phi-4) treat it
+-    // as inert text.
++    // Append `/no_think` to user content when reasoning trace must be
++    // suppressed. Qwen3 thinking models (8B, 14B) honor this token to
++    // disable the `<think>...</think>` reasoning trace; non-thinking models
++    // (Qwen3-4B-Instruct-2507, Mistral, Phi-4) treat it as inert text.
+     //
+-    // Why on by default: oMLX puts the reasoning trace in `reasoning_content`
+-    // (separate from `content`, doesn't burn our MAX_OUTPUT_TOKENS cap), but
+-    // it DOES add 30-80s of wall-clock latency to longer tasks — enough to
+-    // exceed Claude Code's hardcoded 60s MCP request wall for transform /
+-    // summarize-long. Until v0.6.0 ships the async-job pattern that makes
+-    // >60s tool calls reachable, `/no_think` stays the safe default.
++    // Resolution order (v0.6.0+):
++    //   1. Explicit per-call `opts.disableThinking` (computed by server.ts
++    //      via `src/config/thinking-defaults.ts` resolver) — authoritative
++    //      when present.
++    //   2. Legacy env-var fallback `OMCP_THINKING_MODE=on` — used when the
++    //      caller doesn't compute via resolver (e.g. tests, eval harness).
++    //   3. Otherwise: suppress (append `/no_think`) — historical default.
+     //
+-    // Override: `OMCP_THINKING_MODE=on` removes the suffix (lets thinking
+-    // models reason freely). Trades 30-80s extra latency for typically
+-    // higher quality on reasoning-heavy tasks. Eval-only today.
+-    const thinkingOn = process.env['OMCP_THINKING_MODE'] === 'on';
++    // Why disable-by-default historically: oMLX puts the trace in a separate
++    // `reasoning_content` field that doesn't burn our MAX_OUTPUT_TOKENS cap,
++    // but it adds 30-80 s wall-clock — risks Claude Code's 60 s MCP wall on
++    // longer tasks. The v0.6.0 async-job pattern makes long-decode reachable.
++    let thinkingOn: boolean;
++    if (opts.disableThinking !== undefined) {
++      thinkingOn = !opts.disableThinking;
++    } else {
++      thinkingOn = process.env['OMCP_THINKING_MODE'] === 'on';
++    }
+     const userContent = thinkingOn ? opts.user : `${opts.user}\n/no_think`;
+     messages.push({ role: 'user', content: userContent });
+ 
+diff --git a/packages/core/src/mcp/server.ts b/packages/core/src/mcp/server.ts
+index 6099fc5..a521db7 100644
+--- a/packages/core/src/mcp/server.ts
++++ b/packages/core/src/mcp/server.ts
+@@ -13,6 +13,11 @@ import { BridgeDefense } from './defense.js';
+ import { sanitizeSchemaForStrictMode } from './sanitize.js';
+ import { readSource, readSourceOptionsFromEnv } from '../io/sourceReader.js';
+ import { backendForTool } from './backend-factory.js';
++import {
++  resolveThinking,
++  ThinkingInputSchema,
++  type ThinkingMode,
++} from '../config/thinking-defaults.js';
+ import { chunkedSummarize } from '../chunking/map-reduce.js';
+ import { parseDiffText, deriveTestCoverageHint, formatParsedDiffForPrompt } from '../diff/parse.js';
+ import type { JobRegistry } from '../jobs/registry.js';
+@@ -303,9 +308,10 @@ export function buildBridgeServer(
+         style: z.string().optional().describe(
+           'Optional style hint, e.g. "one sentence", "three bullet points", "for a non-technical reader".',
+         ),
++        thinking: ThinkingInputSchema,
+       },
+     },
+-    async ({ text, source_uri, style }, extra: ToolExtra) => {
++    async ({ text, source_uri, style, thinking }, extra: ToolExtra) => {
+       const src = await resolveSource(text, source_uri);
+       if (!src.ok) {
+         return { isError: true as const, content: [{ type: 'text' as const, text: src.message }] };
+@@ -342,6 +348,7 @@ export function buildBridgeServer(
+             temperature: 0.2,
+             maxInputTokens: tierCfg.numCtx ?? 8192,
+             maxOutputTokens: MAX_OUTPUT_TOKENS.summarize,
++            disableThinking: resolveThinking('summarize', thinking) === 'off',
+           },
+           extra.signal,
+         );
+@@ -389,9 +396,10 @@ export function buildBridgeServer(
+         style: z.string().optional().describe(
+           'Optional style hint. Default is 1-2 sentence lead plus 3-6 bullets.',
+         ),
++        thinking: ThinkingInputSchema,
+       },
+     },
+-    async ({ text, source_uri, style }, extra: ToolExtra) => {
++    async ({ text, source_uri, style, thinking }, extra: ToolExtra) => {
+       const src = await resolveSource(text, source_uri);
+       if (!src.ok) {
+         return { isError: true as const, content: [{ type: 'text' as const, text: src.message }] };
+@@ -428,6 +436,7 @@ export function buildBridgeServer(
+             temperature: 0.2,
+             maxInputTokens: tierCfg.numCtx ?? 8192,
+             maxOutputTokens: MAX_OUTPUT_TOKENS['summarize-long'],
++            disableThinking: resolveThinking('summarize-long', thinking) === 'off',
+           },
+           extra.signal,
+         );
+@@ -475,9 +484,10 @@ export function buildBridgeServer(
+         max_chunks: z.number().int().min(1).optional().describe(
+           'Safety cap on chunk count. Default 100. Job errors out above this — raise OMCP_CHUNK_SIZE or split the source instead of raising this.',
+         ),
++        thinking: ThinkingInputSchema,
+       },
+     },
+-    async ({ text, source_uri, style, max_chunks }, extra: ToolExtra) => {
++    async ({ text, source_uri, style, max_chunks, thinking }, extra: ToolExtra) => {
+       const src = await resolveSource(text, source_uri);
+       if (!src.ok) {
+         return { isError: true as const, content: [{ type: 'text' as const, text: src.message }] };
+@@ -521,6 +531,8 @@ export function buildBridgeServer(
+           signal: extra.signal,
+           chunkSize,
+           chunkOverlap,
++          disableThinking:
++            resolveThinking('summarize-long-chunked', thinking) === 'off',
+           concurrency,
+           onProgress: async (msg, current, total) => {
+             // Map chunked progress (variable phases) onto the 5-step bar.
+@@ -604,9 +616,10 @@ export function buildBridgeServer(
+         explain: z.boolean().optional().describe(
+           'If true, include a short reason field in the output.',
+         ),
++        thinking: ThinkingInputSchema,
+       },
+     },
+-    async ({ text, categories, allow_multiple, explain }, extra: ToolExtra) => {
++    async ({ text, categories, allow_multiple, explain, thinking }, extra: ToolExtra) => {
+       const tierKey = tierForTool(config, 'classify');
+       const tierCfg = config.tiers[tierKey];
+       const t0 = Date.now();
+@@ -648,6 +661,7 @@ export function buildBridgeServer(
+             maxInputTokens: tierCfg.numCtx ?? 8192,
+             format: formatSchema,
+             maxOutputTokens: MAX_OUTPUT_TOKENS.classify,
++            disableThinking: resolveThinking('classify', thinking) === 'off',
+           },
+           extra.signal,
+         );
+@@ -696,9 +710,10 @@ export function buildBridgeServer(
+           'JSON Schema object describing the desired output. Obtain via z.toJSONSchema(yourSchema). ' +
+           'Avoid z.email(), z.url(), z.string().regex() — they crash Ollama\'s grammar compiler.',
+         ),
++        thinking: ThinkingInputSchema,
+       },
+     },
+-    async ({ text, source_uri, schema }, extra: ToolExtra) => {
++    async ({ text, source_uri, schema, thinking }, extra: ToolExtra) => {
+       const src = await resolveSource(text, source_uri);
+       if (!src.ok) {
+         return { isError: true as const, content: [{ type: 'text' as const, text: src.message }] };
+@@ -745,6 +760,7 @@ export function buildBridgeServer(
+             maxInputTokens: tierCfg.numCtx ?? 8192,
+             format: sanitized.schema,
+             maxOutputTokens: MAX_OUTPUT_TOKENS.extract,
++            disableThinking: resolveThinking('extract', thinking) === 'off',
+           },
+           extra.signal,
+         );
+@@ -802,9 +818,10 @@ export function buildBridgeServer(
+         instruction: z.string().min(1).describe(
+           'The transformation instruction, e.g. "Translate to Spanish", "Fix grammar", "Make it more formal".',
+         ),
++        thinking: ThinkingInputSchema,
+       },
+     },
+-    async ({ text, source_uri, instruction }, extra: ToolExtra) => {
++    async ({ text, source_uri, instruction, thinking }, extra: ToolExtra) => {
+       const src = await resolveSource(text, source_uri);
+       if (!src.ok) {
+         return { isError: true as const, content: [{ type: 'text' as const, text: src.message }] };
+@@ -840,6 +857,7 @@ export function buildBridgeServer(
+             temperature: 0.3,
+             maxInputTokens: tierCfg.numCtx ?? 8192,
+             maxOutputTokens: MAX_OUTPUT_TOKENS.transform,
++            disableThinking: resolveThinking('transform', thinking) === 'off',
+           },
+           extra.signal,
+         );
+@@ -885,10 +903,15 @@ export function buildBridgeServer(
+           'file:// or http(s):// URI to read the diff from. Required if diff_text is not provided. ' +
+           'Preferred for diffs > 4 KB to avoid ARG_MAX limits and save frontier tokens.',
+         ),
++        thinking: ThinkingInputSchema,
+       },
+     },
+     async (
+-      { diff_text, source_uri }: { diff_text?: string; source_uri?: string },
++      {
++        diff_text,
++        source_uri,
++        thinking,
++      }: { diff_text?: string; source_uri?: string; thinking?: ThinkingMode },
+       extra: ToolExtra,
+     ) => {
+       const src = await resolveSource(diff_text, source_uri);
+@@ -964,6 +987,7 @@ export function buildBridgeServer(
+             maxInputTokens: tierCfg.numCtx ?? 8192,
+             format: sanitized.schema,
+             maxOutputTokens: MAX_OUTPUT_TOKENS['diff-semantic-index'],
++            disableThinking: resolveThinking('diff-semantic-index', thinking) === 'off',
+           },
+           extra.signal,
+         );
+@@ -1194,10 +1218,100 @@ export function buildBridgeServer(
+             ],
+           };
+         }
++        // v0.6.0: inline-content is the primary path (works on sandboxed
++        // clients that can't read file://). For very large results (e.g.
++        // chunked summaries of book-length sources) the bridge returns the
++        // file path instead. Threshold defaults to 1 MB; configurable via
++        // OMCP_INLINE_RESULT_MAX_BYTES.
++        const inlineMaxBytes = (() => {
++          const raw = process.env['OMCP_INLINE_RESULT_MAX_BYTES'];
++          const parsed = raw !== undefined ? Number(raw) : NaN;
++          return Number.isFinite(parsed) && parsed > 0 ? parsed : 1_048_576;
++        })();
++        const bodyBytes = Buffer.byteLength(body, 'utf-8');
++        if (bodyBytes > inlineMaxBytes) {
++          return {
++            content: [
++              {
++                type: 'text' as const,
++                text: JSON.stringify(
++                  {
++                    file_path: jobRegistry.store.resultPath(job_id),
++                    bytes: bodyBytes,
++                    inline_max_bytes: inlineMaxBytes,
++                    note:
++                      'Result exceeds inline threshold; read the file via your client\'s ' +
++                      'Read tool, or raise OMCP_INLINE_RESULT_MAX_BYTES if the client can ' +
++                      'accept larger inline payloads.',
++                  },
++                  null,
++                  2,
++                ),
++              },
++            ],
++          };
++        }
+         return { content: [{ type: 'text' as const, text: body }] };
+       },
+     );
+ 
++    // ── v0.6.0 check_progress ─────────────────────────────────────────────
++    // Lightweight cross-client status poll. Each call is one MCP roundtrip,
++    // returns instantly (<100 ms). Use when the caller is not on Claude Code
++    // (which can use the wait_command Bash one-liner from enqueue_job)
++    // and wants to avoid wait_for_job's 45 s long-poll semantics.
++    // Suggested cadence: every 2 s for the first 60 s, every 5 s thereafter.
++    server.registerTool(
++      'check_progress',
++      {
++        title: 'Lightweight non-blocking status check for an async job (v0.6.0+)',
++        description:
++          'Cross-client universal poll: returns the current status of a job ' +
++          'without blocking. Each call is one MCP roundtrip, instant (<100 ms). ' +
++          'Suggested cadence: every 2 s for the first 60 s, every 5 s thereafter. ' +
++          'COMPARE WITH: wait_for_job (long-poll, blocks up to 45 s, v0.3.0 deprecated) ' +
++          '— use check_progress unless you specifically need long-poll. ' +
++          'COMPARE WITH: wait_command (POSIX one-liner from enqueue_job, Claude-Code only).',
++        inputSchema: {
++          job_id: z.string().min(1).describe('The job_id returned from enqueue_job / enqueue-job.'),
++        },
++      },
++      async ({ job_id }: { job_id: string }) => {
++        const meta = await jobRegistry.getMeta(job_id);
++        if (!meta) {
++          return {
++            isError: true as const,
++            content: [
++              {
++                type: 'text' as const,
++                text: `Job ${job_id} not found (never existed or expired).`,
++              },
++            ],
++          };
++        }
++        const out: Record<string, unknown> = { status: meta.status };
++        // Progress: convert {current, total} to 0-100 percentage when total > 0.
++        // Only chunked tools emit progress; for monolithic tools the field is
++        // omitted from the response (caller treats absence as "no progress data").
++        if (meta.progress && meta.progress.total > 0) {
++          out.progress = Math.round(
++            (meta.progress.current / meta.progress.total) * 100,
++          );
++          if (meta.progress.message) {
++            out.message = meta.progress.message;
++          }
++        }
++        if (meta.status === 'failed' && meta.error) {
++          out.error = meta.error;
++        }
++        return {
++          content: [
++            { type: 'text' as const, text: JSON.stringify(out, null, 2) },
++          ],
++        };
++      },
++    );
++
+     server.registerTool(
+       'enqueue-job',
+       {
+@@ -1250,6 +1364,114 @@ export function buildBridgeServer(
+         }
+       },
+     );
++
++    // ── v0.6.0 enqueue_job ────────────────────────────────────────────────
++    // New snake-case tool name matches sister tools (wait_for_job /
++    // read_job_result). Strict superset of v0.3.0 `enqueue-job`:
++    //  - Accepts `thinking?: 'on'|'off'|'auto'` per scope memo v0.6.0 §3.1
++    //  - Computes `thinking_resolved` via resolveThinking(); the runner
++    //    injects it into args before invoking the wrapped tool, so the
++    //    wrapped tool runs under the caller's intended thinking mode.
++    //  - Returns `result_uri` (file:// of the eventual <id>.md result body)
++    //    and, when the client advertises bash capability, a `wait_command`
++    //    Claude-Code-friendly one-liner.
++    //
++    // v0.3.0 `enqueue-job` stays registered for backward compat; Day 4
++    // will mark it deprecated in description. v0.7+ removes it.
++    //
++    // Forward-compat (scope memo §3 head note): this triad is a temporary
++    // compat layer for clients that don't yet support MCP Tasks SEP-2663.
++    // When SEP stabilizes + a major client ships native task return, the
++    // entire triad sunsets.
++    server.registerTool(
++      'enqueue_job',
++      {
++        title: 'Enqueue a long-running tool call as a background job (v0.6.0)',
++        description:
++          'DELEGATION GUIDANCE: use this when a regular tool call would exceed your MCP ' +
++          'client request timeout (Claude Code: ~60 s). The job runs in the background; ' +
++          'you receive a job_id + result_uri immediately. ' +
++          'POLLING: use check_progress(job_id) to check status (v0.6.0+) or wait_for_job ' +
++          '(v0.3.0 long-poll, deprecated). Fetch the body with read_job_result(job_id). ' +
++          'BASH FAST-PATH: when the server returns wait_command (env OMCP_ASSUME_BASH_CLIENT=1 ' +
++          'or future MCP capability handshake), Claude Code clients can paste it into Bash ' +
++          'to collapse poll+read into one call (10-minute cap, well above any oMLX task). ' +
++          'THINKING: pass thinking="on"|"off"|"auto" to override the per-tool default the ' +
++          'wrapped tool would otherwise use; the chosen value is persisted in job metadata ' +
++          'and threaded back into the tool call. ' +
++          'Idempotency: dedupes by hash(tool + args + thinking_resolved) — repeated calls ' +
++          'with identical inputs while a prior job is still queued/running return the ' +
++          'existing job_id, not a fresh one.',
++        inputSchema: {
++          tool: z.enum(ASYNC_TOOL_WHITELIST).describe(
++            'Which v0.2.0/v0.5.0 tool to run as a job. Whitelisted to prevent recursion or self-reference.',
++          ),
++          args: z.record(z.string(), z.unknown()).describe(
++            'Args object forwarded verbatim to the wrapped tool. The runner additionally ' +
++              'merges `thinking: thinking_resolved` before invocation when applicable.',
++          ),
++          thinking: ThinkingInputSchema,
++          ttl_days: z.number().int().min(1).max(30).optional().describe(
++            'How many days the result stays in `~/.local-mcp/jobs/` before GC. Default 7.',
++          ),
++        },
++      },
++      async ({
++        tool,
++        args,
++        thinking,
++        ttl_days,
++      }: {
++        tool: typeof ASYNC_TOOL_WHITELIST[number];
++        args: Record<string, unknown>;
++        thinking?: ThinkingMode;
++        ttl_days?: number;
++      }) => {
++        try {
++          const thinking_resolved = resolveThinking(tool, thinking);
++          const meta = await jobRegistry.enqueue(
++            tool,
++            args,
++            ttl_days ?? 7,
++            thinking_resolved,
++          );
++          jobRunner.schedule(meta);
++          const resultPath = jobRegistry.store.resultPath(meta.job_id);
++          const result_uri = `file://${resultPath}`;
++          const expiresAt = new Date(
++            new Date(meta.enqueued_at).getTime() + meta.ttl_days * 86400_000,
++          ).toISOString();
++          // Capability detection (Day 2: env var stub; future: MCP handshake).
++          // POSIX-only one-liner (no [[, no zsh-isms) — portable across
++          // /bin/sh, bash, zsh that Claude Code might invoke.
++          const bashCapable = process.env['OMCP_ASSUME_BASH_CLIENT'] === '1';
++          const wait_command = bashCapable
++            ? `while [ ! -f ${resultPath} ]; do sleep 5; done; cat ${resultPath}`
++            : undefined;
++          return {
++            content: [
++              {
++                type: 'text' as const,
++                text: JSON.stringify(
++                  {
++                    job_id: meta.job_id,
++                    enqueued_at: meta.enqueued_at,
++                    expires_at: expiresAt,
++                    result_uri,
++                    thinking_resolved,
++                    ...(wait_command !== undefined ? { wait_command } : {}),
++                  },
++                  null,
++                  2,
++                ),
++              },
++            ],
++          };
++        } catch (err) {
++          return toolCallError(err);
++        }
++      },
++    );
+   }
+ 
+   return server;
