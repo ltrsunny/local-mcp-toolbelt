@@ -23,17 +23,19 @@
 #      Threshold: OMCP_HOOK_THRESHOLD_BYTES (default 1024).
 #      Above the threshold → block.
 #
-#   2. Project-internal "analysis paths" (research artifacts, diagnostics
-#      — primarily write-once, never iteratively edited)
+#   2. Project-internal "analysis paths" (research artifacts, diagnostics,
+#      design memos in non-edit phases)
 #      Default paths: .claude/brainstorm .claude/diagnostics
-#                     docs/notes docs/prior-art
+#                     docs/notes docs/scope-memos docs/prior-art
 #      Threshold: OMCP_HOOK_ANALYSIS_THRESHOLD_BYTES (default 4096).
-#      NOTE: docs/scope-memos is intentionally NOT in the default set —
-#      scope memos are design documents under iterative editing, same
-#      tier as source code. They need raw Read access for Edit-time
-#      precision-matching. A user can still add the path back via
-#      OMCP_HOOK_ANALYSIS_PATHS if their team uses scope-memos as
-#      research-raw output instead.
+#      Scope-memo Edit-mode override: when
+#      `$CLAUDE_PROJECT_DIR/.claude/.scope-memo-edit-mode` exists,
+#      the docs/scope-memos prefix is removed from analysis paths for
+#      the duration of the marker's lifetime. Touch the marker to
+#      enter edit mode; rm to exit. Don't leave it on between
+#      sessions. The marker mechanism exists because Edit's
+#      `old_string` prerequisite needs byte-perfect context that
+#      bridge `extract` can't always deliver from a 4B model.
 #
 #   3. Project-internal data files by extension
 #      Default extensions: log diff jsonl ips ndjson csv
@@ -55,7 +57,7 @@ set -euo pipefail
 EXTERNAL_THRESHOLD="${OMCP_HOOK_THRESHOLD_BYTES:-1024}"
 ANALYSIS_THRESHOLD="${OMCP_HOOK_ANALYSIS_THRESHOLD_BYTES:-4096}"
 
-DEFAULT_ANALYSIS_PATHS=".claude/brainstorm:.claude/diagnostics:docs/notes:docs/prior-art"
+DEFAULT_ANALYSIS_PATHS=".claude/brainstorm:.claude/diagnostics:docs/notes:docs/scope-memos:docs/prior-art"
 ANALYSIS_PATHS_RAW="${OMCP_HOOK_ANALYSIS_PATHS:-$DEFAULT_ANALYSIS_PATHS}"
 
 DEFAULT_DATA_EXTS="log diff jsonl ips ndjson csv"
@@ -87,6 +89,23 @@ IFS=':' read -r -a _ap <<<"$ANALYSIS_PATHS_RAW"
 for rel in "${_ap[@]}"; do
   [ -n "$rel" ] && ANALYSIS_PREFIXES+=("${CLAUDE_PROJECT_DIR}/${rel}")
 done
+
+# Marker-file override: when `.claude/.scope-memo-edit-mode` exists,
+# strip `docs/scope-memos` from the analysis-path set for the duration
+# of the marker. Lets a user enter Edit-prerequisite mode for scope
+# memos without restarting Claude Code (env vars are inherited from
+# launch, not from in-session shells). Touch to enter; rm to exit.
+SCOPE_MEMO_MARKER="${CLAUDE_PROJECT_DIR}/.claude/.scope-memo-edit-mode"
+if [ -f "$SCOPE_MEMO_MARKER" ] && [ "${#ANALYSIS_PREFIXES[@]}" -gt 0 ]; then
+  _filtered=()
+  for prefix in "${ANALYSIS_PREFIXES[@]}"; do
+    case "$prefix" in
+      "${CLAUDE_PROJECT_DIR}/docs/scope-memos") ;;
+      *) _filtered+=("$prefix") ;;
+    esac
+  done
+  ANALYSIS_PREFIXES=("${_filtered[@]}")
+fi
 
 DATA_EXT_RE=""
 for ext in $DATA_EXTS_RAW; do
@@ -202,6 +221,19 @@ allow-listed — only analysis-path / data-file content is enforced
 here. Override per-project via OMCP_HOOK_ANALYSIS_PATHS and
 OMCP_HOOK_DATA_EXTENSIONS if these defaults don't fit.
 EOF
+  case "$p" in
+    "${CLAUDE_PROJECT_DIR}/docs/scope-memos/"*)
+      cat >&2 <<EOF
+
+For Edit-prerequisite reads on scope memos specifically (when bridge
+extract's verbatim schema is too brittle for old_string matching):
+  touch ${CLAUDE_PROJECT_DIR}/.claude/.scope-memo-edit-mode
+to bypass this gate for scope-memos only during an active editing
+session. \`rm\` the marker when done — don't leave it on across
+sessions. (The marker is git-ignored.)
+EOF
+      ;;
+  esac
 }
 
 # Check a fully-resolved path. Exit 2 if blocked.

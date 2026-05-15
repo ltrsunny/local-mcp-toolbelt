@@ -119,7 +119,8 @@ Three enforcement bands:
 - **External files > 1 KB** — outside project + `~/.claude` + `~/.omlx`.
   Route via `source_uri`.
 - **Project-internal analysis paths > 4 KB** — `.claude/brainstorm`,
-  `.claude/diagnostics`, `docs/notes`, `docs/prior-art`.
+  `.claude/diagnostics`, `docs/notes`, `docs/scope-memos`, `docs/prior-art`.
+  Edit-mode marker for scope memos: `touch .claude/.scope-memo-edit-mode` (rm to exit; git-ignored).
 - **Project-internal data files > 4 KB** by extension — `*.log`, `*.diff`,
   `*.jsonl`, `*.ips`, `*.ndjson`, `*.csv`.
 
@@ -128,8 +129,7 @@ surgical edits still need raw bytes. Long *understanding* (no edit): use
 `summarize-long-chunked` with `source_uri`. Multi-AI critique cycles pipe
 between Gemini/Copilot via bash, NOT through frontier.
 
-Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`;
-`run_in_background` for long shells.
+Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`; `run_in_background` for long shells.
 
 ## Things to push back on (challenge user / self)
 

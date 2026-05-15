@@ -35,3 +35,9 @@ packages/core/tests/eval/runs/
 # mid-run). Prompt files in the same dir ARE committed for replay.
 .claude/brainstorm/eval-result.md
 .claude/brainstorm/pa-mcp-result.md
+
+# Per-session marker file for hook bypass during scope-memo editing
+# (the hook checks for this file's existence and exempts
+# docs/scope-memos from analysis-path gating while it's present).
+# Per-machine state — don't ever commit it.
+.claude/.scope-memo-edit-mode
