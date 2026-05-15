@@ -1,39 +1,102 @@
 #!/usr/bin/env bash
 # enforce-bridge.sh — PreToolUse hook that blocks direct reads of large
-# external files, forcing Claude to route through the local-mcp-toolbelt
-# bridge (mcp__local-mcp-toolbelt__{summarize-long,extract,classify}).
+# files, forcing the host (Claude Code, etc.) to route through the
+# local-mcp-toolbelt bridge instead.
 #
-# Why: project memory rule "use bridge for >1KB external content" is soft
-# and was repeatedly ignored. This is the hard-enforcement layer.
+# Why: the soft rule "use bridge for >1KB content" was repeatedly ignored
+# in real sessions. This is the hard-enforcement layer.
+#
+# Scope — this is the SEED for a v0.7+ product feature:
+#   `local-mcp-toolbelt` will ship a `hooks/` directory plus an
+#   `omcp install-hooks` command so any user can adopt the same
+#   enforcement without copying this file by hand. Keep the
+#   implementation generic: no project-specific paths hard-coded;
+#   all knobs go through env vars.
+#   See docs/scope-memos/v0.7.0-bridge-enforcement-2026-05-15.md.
 #
 # Reads hook input JSON from stdin. Exits 0 to allow, exits 2 to block
-# (Claude sees the stderr message and must adapt).
+# (the host shows stderr to the model and forces it to adapt).
 #
-# Allow-list (no enforcement):
-#   - paths under $CLAUDE_PROJECT_DIR (project source / docs)
-#   - paths under ~/.claude/ (Claude internal memory + transcripts)
-#   - paths under ~/.omlx/ (oMLX models, server logs)
-#   - files <= 1024 bytes (cheap reads, not worth bridge round-trip)
-#   - small allow-listed extensions inside any size class
-#     (.json + .yaml: usually config metadata; bridge can't help)
+# Three enforcement bands:
+#
+#   1. External files (outside $CLAUDE_PROJECT_DIR + allow-listed prefixes)
+#      Threshold: OMCP_HOOK_THRESHOLD_BYTES (default 1024).
+#      Above the threshold → block.
+#
+#   2. Project-internal "analysis paths" (research artifacts, diagnostics)
+#      Default paths: .claude/brainstorm .claude/diagnostics
+#                     docs/notes docs/scope-memos docs/prior-art
+#      Threshold: OMCP_HOOK_ANALYSIS_THRESHOLD_BYTES (default 4096).
+#
+#   3. Project-internal data files by extension
+#      Default extensions: log diff jsonl ips ndjson csv
+#      Threshold: same as band 2.
+#
+# Source code and config inside the project (not matching bands 2 or 3)
+# stay allow-listed — surgical edits still need raw bytes.
+#
+# Env-var configuration (all optional):
+#   OMCP_HOOK_THRESHOLD_BYTES           external-file byte threshold
+#   OMCP_HOOK_ANALYSIS_THRESHOLD_BYTES  internal-analysis byte threshold
+#   OMCP_HOOK_ANALYSIS_PATHS            colon-separated project-relative paths
+#   OMCP_HOOK_DATA_EXTENSIONS           space-separated extensions (no dot)
+#   OMCP_HOOK_EXTRA_ALLOWED_PREFIXES    colon-separated absolute prefixes
 
 set -euo pipefail
 
-THRESHOLD_BYTES=1024
+# ---------- configuration --------------------------------------------------
+EXTERNAL_THRESHOLD="${OMCP_HOOK_THRESHOLD_BYTES:-1024}"
+ANALYSIS_THRESHOLD="${OMCP_HOOK_ANALYSIS_THRESHOLD_BYTES:-4096}"
+
+DEFAULT_ANALYSIS_PATHS=".claude/brainstorm:.claude/diagnostics:docs/notes:docs/scope-memos:docs/prior-art"
+ANALYSIS_PATHS_RAW="${OMCP_HOOK_ANALYSIS_PATHS:-$DEFAULT_ANALYSIS_PATHS}"
+
+DEFAULT_DATA_EXTS="log diff jsonl ips ndjson csv"
+DATA_EXTS_RAW="${OMCP_HOOK_DATA_EXTENSIONS:-$DEFAULT_DATA_EXTS}"
+
+EXTRA_ALLOWED_RAW="${OMCP_HOOK_EXTRA_ALLOWED_PREFIXES:-}"
+
+# Without a project root we can't tell internal vs external. Under-enforce
+# rather than block all reads in a misconfigured shell.
+if [ -z "${CLAUDE_PROJECT_DIR:-}" ]; then
+  cat >/dev/null
+  exit 0
+fi
+
 ALLOWED_PREFIXES=(
-  "${CLAUDE_PROJECT_DIR:-/Users/rd/ollama-claude}"
+  "$CLAUDE_PROJECT_DIR"
   "${HOME}/.claude"
   "${HOME}/.omlx"
-  "${HOME}/.config/claude-dev"
 )
+if [ -n "$EXTRA_ALLOWED_RAW" ]; then
+  IFS=':' read -r -a _extras <<<"$EXTRA_ALLOWED_RAW"
+  for p in "${_extras[@]}"; do
+    [ -n "$p" ] && ALLOWED_PREFIXES+=("$p")
+  done
+fi
 
-# Read the hook input JSON.
+ANALYSIS_PREFIXES=()
+IFS=':' read -r -a _ap <<<"$ANALYSIS_PATHS_RAW"
+for rel in "${_ap[@]}"; do
+  [ -n "$rel" ] && ANALYSIS_PREFIXES+=("${CLAUDE_PROJECT_DIR}/${rel}")
+done
+
+DATA_EXT_RE=""
+for ext in $DATA_EXTS_RAW; do
+  [ -z "$ext" ] && continue
+  if [ -z "$DATA_EXT_RE" ]; then
+    DATA_EXT_RE="\\.($ext"
+  else
+    DATA_EXT_RE="${DATA_EXT_RE}|${ext}"
+  fi
+done
+[ -n "$DATA_EXT_RE" ] && DATA_EXT_RE="${DATA_EXT_RE})$"
+
+# ---------- input ----------------------------------------------------------
 INPUT="$(cat)"
 TOOL_NAME="$(jq -r '.tool_name // ""' <<<"$INPUT")"
 
-# Tilde-expand and resolve to an absolute path. Returns "" if file does
-# not exist (we don't block reads of non-existent files — Read will
-# error naturally).
+# ---------- helpers --------------------------------------------------------
 resolve_path() {
   local p="${1:-}"
   [ -z "$p" ] && { echo ""; return; }
@@ -42,7 +105,6 @@ resolve_path() {
     "~"*)  p="${HOME}${p:1}" ;;
   esac
   if [ -f "$p" ]; then
-    # macOS realpath: greadlink -f if available, else just print as-is
     if command -v greadlink >/dev/null 2>&1; then
       greadlink -f "$p"
     else
@@ -53,8 +115,6 @@ resolve_path() {
   fi
 }
 
-# Returns 0 if path is allowed (under project or claude/omlx dirs),
-# 1 if it should be checked for size + bridge enforcement.
 is_allowed_path() {
   local p="$1"
   for prefix in "${ALLOWED_PREFIXES[@]}"; do
@@ -65,93 +125,129 @@ is_allowed_path() {
   return 1
 }
 
-# Returns 0 if the file is large enough to require bridge routing.
-needs_bridge() {
+is_analysis_path() {
   local p="$1"
-  [ -f "$p" ] || return 1
-  local size
-  size="$(stat -f%z "$p" 2>/dev/null || stat -c%s "$p" 2>/dev/null || echo 0)"
-  [ "$size" -gt "$THRESHOLD_BYTES" ]
+  [ "${#ANALYSIS_PREFIXES[@]}" -eq 0 ] && return 1
+  for prefix in "${ANALYSIS_PREFIXES[@]}"; do
+    case "$p" in
+      "${prefix}/"*|"$prefix") return 0 ;;
+    esac
+  done
+  return 1
 }
 
-emit_block_message() {
+is_data_file() {
   local p="$1"
-  local size
-  size="$(stat -f%z "$p" 2>/dev/null || stat -c%s "$p" 2>/dev/null || echo 0)"
-  cat >&2 <<EOF
-[bridge enforcement]
-File: $p ($size bytes)
-This file is outside the project + larger than ${THRESHOLD_BYTES} bytes.
+  [ -z "$DATA_EXT_RE" ] && return 1
+  printf '%s\n' "$p" | grep -qE "$DATA_EXT_RE"
+}
 
-Direct read brings raw bytes into your context — defeats the whole point
-of the bridge. Route through the local model instead:
+file_size() {
+  stat -f%z "$1" 2>/dev/null || stat -c%s "$1" 2>/dev/null || echo 0
+}
+
+bigger_than() {
+  local p="$1" threshold="$2" size
+  [ -f "$p" ] || return 1
+  size="$(file_size "$p")"
+  [ "$size" -gt "$threshold" ]
+}
+
+emit_external_block() {
+  local p="$1" size; size="$(file_size "$p")"
+  cat >&2 <<EOF
+[bridge enforcement — external file]
+File: $p ($size bytes)
+Outside the project + larger than ${EXTERNAL_THRESHOLD} bytes.
+
+Direct read brings raw bytes into your context — defeats the bridge.
+Route through the local model instead:
 
   mcp__local-mcp-toolbelt__summarize-long  source_uri="file://$p"
   mcp__local-mcp-toolbelt__extract         source_uri="file://$p"  schema={...}
   mcp__local-mcp-toolbelt__classify        text="..."  categories=[...]
 
-Pick the tool that matches the task. The bridge runs Qwen3-4B/8B/14B on
-oMLX locally — no Claude tokens spent on prefill of this file.
+Pick the tool that matches the task. Local Qwen3 on oMLX — no frontier
+tokens spent on prefill of this file.
 
-If you genuinely need raw read (precise edit, code surgery): the file
-must be <= 1KB OR inside the project / .claude / .omlx tree.
+If you genuinely need raw bytes (precise edit, code surgery): the file
+must be inside the project tree OR <= ${EXTERNAL_THRESHOLD} bytes.
 EOF
 }
 
-# Tool dispatch.
+emit_analysis_block() {
+  local p="$1" reason="$2" size; size="$(file_size "$p")"
+  cat >&2 <<EOF
+[bridge enforcement — project analysis path]
+File: $p ($size bytes)
+Reason: $reason — larger than ${ANALYSIS_THRESHOLD} bytes.
+
+This is research / diagnostic / bulk data content. Reading it whole
+burns the same tokens whether the file lives inside or outside the
+project. Use the bridge:
+
+  mcp__local-mcp-toolbelt__summarize-long  source_uri="file://$p"
+  mcp__local-mcp-toolbelt__extract         source_uri="file://$p"  schema={...}
+  mcp__local-mcp-toolbelt__classify        text="..."  categories=[...]
+
+Source code, configs, and small notes inside the project stay
+allow-listed — only analysis-path / data-file content is enforced
+here. Override per-project via OMCP_HOOK_ANALYSIS_PATHS and
+OMCP_HOOK_DATA_EXTENSIONS if these defaults don't fit.
+EOF
+}
+
+# Check a fully-resolved path. Exit 2 if blocked.
+check_path() {
+  local p="$1"
+  if ! is_allowed_path "$p"; then
+    if bigger_than "$p" "$EXTERNAL_THRESHOLD"; then
+      emit_external_block "$p"
+      exit 2
+    fi
+    return 0
+  fi
+  if is_analysis_path "$p" && bigger_than "$p" "$ANALYSIS_THRESHOLD"; then
+    emit_analysis_block "$p" "matches analysis-path pattern"
+    exit 2
+  fi
+  if is_data_file "$p" && bigger_than "$p" "$ANALYSIS_THRESHOLD"; then
+    emit_analysis_block "$p" "matches data-file extension"
+    exit 2
+  fi
+  return 0
+}
+
+# ---------- dispatch -------------------------------------------------------
 case "$TOOL_NAME" in
   Read)
     PATH_RAW="$(jq -r '.tool_input.file_path // ""' <<<"$INPUT")"
     PATH_ABS="$(resolve_path "$PATH_RAW")"
-    [ -z "$PATH_ABS" ] && exit 0  # nonexistent or empty — let Read error itself
-    if is_allowed_path "$PATH_ABS"; then exit 0; fi
-    if needs_bridge "$PATH_ABS"; then
-      emit_block_message "$PATH_ABS"
-      exit 2
-    fi
+    [ -z "$PATH_ABS" ] && exit 0
+    check_path "$PATH_ABS"
     exit 0
     ;;
 
   Bash)
     CMD="$(jq -r '.tool_input.command // ""' <<<"$INPUT")"
-    # Only block when a stdout-reader command is present in the line.
-    # Path-mutating commands (rm, mv, chmod, mkdir) and script runners
-    # (python3, node, sh, vim) don't pipe file content into Claude's
-    # context, so they're not enforcement targets.
-    #
-    # Reader vocabulary: cat head tail less more awk sed grep rg jq yq
-    # xxd od hexdump strings tac rev nl cut. If none appear as a word
-    # in the command, allow without further inspection.
-    # Match reader command only at COMMAND POSITION:
-    #   - start of the command line, OR
-    #   - after a pipeline/sequence operator (| ; && || or open-paren),
-    # followed by optional whitespace and a reader word followed by
-    # whitespace.
-    #
-    # This avoids false positives when reader words appear inside quoted
-    # strings (e.g. `git commit -m "show cat output"` or `echo "use head"`).
+    # Reader-command vocabulary at command position (start or after
+    # |, ;, &&, ||, open-paren). Quoted occurrences inside strings are
+    # ignored.
     READER_RE='(^|[|;&(])[[:space:]]*(cat|head|tail|less|more|awk|sed|grep|rg|jq|yq|xxd|od|hexdump|strings|tac|rev|nl|cut)[[:space:]]'
     if ! printf '%s ' "$CMD" | grep -qE "$READER_RE"; then
       exit 0
     fi
-    # Strip redirection targets — `> path`, `>> path`, `2> path`, `&> path`
-    # are WRITES, not reads, and shouldn't trigger bridge enforcement even
-    # if a large file already exists at that path.
+    # Strip redirection targets — `> path`, `>> path`, `2> path` are
+    # writes, not reads.
     CMD_SCAN="$(printf '%s' "$CMD" | sed -E 's|[0-9]?>>?[[:space:]]*[^[:space:]|;&]+||g')"
-    # Reader present — now scan tokens for large external paths.
     while read -r tok; do
-      # strip surrounding quotes
       tok="${tok#\"}"; tok="${tok%\"}"
       tok="${tok#\'}"; tok="${tok%\'}"
       case "$tok" in
-        "/tmp/"*|"/var/"*|"~/"*|"/Users/"*|"/etc/"*)
+        "/tmp/"*|"/var/"*|"~/"*|"/Users/"*|"/etc/"*|"${CLAUDE_PROJECT_DIR}/"*)
           PATH_ABS="$(resolve_path "$tok")"
           [ -z "$PATH_ABS" ] && continue
-          if is_allowed_path "$PATH_ABS"; then continue; fi
-          if needs_bridge "$PATH_ABS"; then
-            emit_block_message "$PATH_ABS"
-            exit 2
-          fi
+          check_path "$PATH_ABS"
           ;;
       esac
     done < <(printf '%s\n' "$CMD_SCAN" | tr -s '[:space:]' '\n')

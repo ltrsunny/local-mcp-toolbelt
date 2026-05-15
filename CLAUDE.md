@@ -108,28 +108,28 @@ Any new feature MUST go through:
 
 The Auditor is the user. No code lands ahead of an approved scope memo.
 
-## Bridge-usage discipline (for Claude Code itself)
+## Bridge-usage discipline (enforced by hook, not honour-system)
 
-The whole point of this project is for Claude Code to USE the bridge to save
-its own tokens. Real practice during v0.2.0 cycle: < 5 % usage. Doing better
-now:
+`.claude/hooks/enforce-bridge.sh` is a PreToolUse hook on Read|Bash that
+*physically blocks* the slop paths (exit 2). Seed for a v0.7+ product
+feature — toolbelt will ship `hooks/` + `omcp install-hooks`. See
+`docs/scope-memos/v0.7.0-bridge-enforcement-2026-05-15.md`.
 
-- **Any > 1 KB external research output (Gemini / Copilot return, paper PDF,
-  podcast transcript)**: feed via `source_uri` if URL exists, else save to
-  `/tmp/...` and use `file://`. Inline `text` only for content already in
-  context.
-- **Multi-AI critique cycles**: pipe outputs between Gemini and Copilot via
-  bash, NOT through frontier. Frontier reads only the final consolidated view.
-- **Long file reads before precise edit**: still required (no shortcut).
-- **Long file reads NOT before precise edit** (just understanding): use
-  `summarize-long-chunked` with `source_uri` to compress.
+Three enforcement bands:
+- **External files > 1 KB** — outside project + `~/.claude` + `~/.omlx`.
+  Route via `source_uri`.
+- **Project-internal analysis paths > 4 KB** — `.claude/brainstorm`,
+  `.claude/diagnostics`, `docs/notes`, `docs/scope-memos`, `docs/prior-art`.
+- **Project-internal data files > 4 KB** by extension — `*.log`, `*.diff`,
+  `*.jsonl`, `*.ips`, `*.ndjson`, `*.csv`.
 
-## Token-saving tactics that worked in v0.2.0
+Source code / configs / small notes inside the project stay allow-listed —
+surgical edits still need raw bytes. Long *understanding* (no edit): use
+`summarize-long-chunked` with `source_uri`. Multi-AI critique cycles pipe
+between Gemini/Copilot via bash, NOT through frontier.
 
-- `tsc | head -n 50` instead of full compiler error dumps
-- `grep` + targeted `Read` with `offset/limit` instead of full-file `Read`
-- Bash `cat A | gemini -p ...` to keep large file content out of frontier
-- Background tasks (`run_in_background`) so frontier doesn't wait synchronously
+Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`;
+`run_in_background` for long shells.
 
 ## Things to push back on (challenge user / self)
 
