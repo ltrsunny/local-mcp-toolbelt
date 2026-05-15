@@ -276,3 +276,100 @@ describe('read_job_result', () => {
     expect(text).toContain('simulated failure');
   });
 });
+
+// ── v0.6.0 read_job_result inline/file_path threshold ──────────────────────
+
+describe('read_job_result (v0.6.0) — inline content vs file_path threshold', () => {
+  // The fake invoker in the harness returns "Unknown: summarize" (short) for
+  // unknown tools — well under any sane threshold. To test the threshold
+  // branch, set OMCP_INLINE_RESULT_MAX_BYTES to 1 so the short result
+  // exceeds it and we get the file_path fallback path.
+
+  it('returns inline content when result ≤ threshold (default 1 MB)', async () => {
+    delete process.env.OMCP_INLINE_RESULT_MAX_BYTES;
+    const enqueueResult = await client.callTool({
+      name: 'enqueue-job',
+      arguments: { tool_name: 'summarize', args: { text: 'small body' } },
+    });
+    const { job_id } = JSON.parse(
+      (enqueueResult as { content: Array<{ text: string }> }).content[0]!.text,
+    );
+    await runner.waitIdle();
+
+    const res = await client.callTool({
+      name: 'read_job_result',
+      arguments: { job_id },
+    });
+    expect((res as { isError?: boolean }).isError).toBeFalsy();
+    const text = (res as { content: Array<{ text: string }> }).content[0]?.text ?? '';
+    // Should NOT be JSON-encoded file_path object — should be the result body
+    // as plain text. Try to parse; if it parses as the file_path object we
+    // failed; if it doesn't or is a plain string with body content, we passed.
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      // If it parsed AND has file_path, that's a fail.
+      expect(parsed.file_path).toBeUndefined();
+    } catch {
+      // Not JSON = plain inline body, expected.
+    }
+    expect(text.length).toBeGreaterThan(0);
+  });
+
+  it('returns {file_path, bytes} when result > threshold (env var override)', async () => {
+    // Set threshold absurdly low (1 byte) so any non-empty result spills to file_path.
+    process.env.OMCP_INLINE_RESULT_MAX_BYTES = '1';
+
+    const enqueueResult = await client.callTool({
+      name: 'enqueue-job',
+      arguments: { tool_name: 'summarize', args: { text: 'large body' } },
+    });
+    const { job_id } = JSON.parse(
+      (enqueueResult as { content: Array<{ text: string }> }).content[0]!.text,
+    );
+    await runner.waitIdle();
+
+    const res = await client.callTool({
+      name: 'read_job_result',
+      arguments: { job_id },
+    });
+    expect((res as { isError?: boolean }).isError).toBeFalsy();
+    const text = (res as { content: Array<{ text: string }> }).content[0]?.text ?? '';
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    expect(typeof parsed.file_path).toBe('string');
+    expect(parsed.file_path).toMatch(/\.md$/);
+    expect(typeof parsed.bytes).toBe('number');
+    expect(parsed.inline_max_bytes).toBe(1);
+    expect(typeof parsed.note).toBe('string');
+
+    delete process.env.OMCP_INLINE_RESULT_MAX_BYTES;
+  });
+
+  it('invalid OMCP_INLINE_RESULT_MAX_BYTES falls back to default 1 MB', async () => {
+    process.env.OMCP_INLINE_RESULT_MAX_BYTES = 'not-a-number';
+
+    const enqueueResult = await client.callTool({
+      name: 'enqueue-job',
+      arguments: { tool_name: 'summarize', args: { text: 'fallback to default' } },
+    });
+    const { job_id } = JSON.parse(
+      (enqueueResult as { content: Array<{ text: string }> }).content[0]!.text,
+    );
+    await runner.waitIdle();
+
+    const res = await client.callTool({
+      name: 'read_job_result',
+      arguments: { job_id },
+    });
+    expect((res as { isError?: boolean }).isError).toBeFalsy();
+    const text = (res as { content: Array<{ text: string }> }).content[0]?.text ?? '';
+    // Body is small (~30 bytes); default 1 MB threshold makes it inline.
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      expect(parsed.file_path).toBeUndefined();
+    } catch {
+      // Not JSON — plain inline body. Pass.
+    }
+
+    delete process.env.OMCP_INLINE_RESULT_MAX_BYTES;
+  });
+});

@@ -396,3 +396,55 @@ describe('chunkedSummarize — sanity checks on tunables', () => {
     expect(MAX_RECURSION_DEPTH).toBe(3);
   });
 });
+
+// ── v0.6.0: disableThinking propagation through map-reduce ─────────────────
+
+describe('chunkedSummarize — disableThinking propagation (v0.6.0)', () => {
+  it('forwards disableThinking=true to the fast-path backend.chat', async () => {
+    const backend = new FakeBackend({
+      initialScript: [
+        { result: { text: 'ok', promptTokens: 10, completionTokens: 5 } },
+      ],
+    });
+    await chunkedSummarize({
+      source: 'short doc fits fast-path',
+      backend,
+      maxInputTokens: 8192,
+      signal: freshSignal(),
+      disableThinking: true,
+    });
+    expect(backend.recorded).toHaveLength(1);
+    expect(backend.recorded[0]?.opts.disableThinking).toBe(true);
+  });
+
+  it('forwards disableThinking=false (thinking on) to the fast-path', async () => {
+    const backend = new FakeBackend({
+      initialScript: [
+        { result: { text: 'ok', promptTokens: 10, completionTokens: 5 } },
+      ],
+    });
+    await chunkedSummarize({
+      source: 'short',
+      backend,
+      maxInputTokens: 8192,
+      signal: freshSignal(),
+      disableThinking: false,
+    });
+    expect(backend.recorded[0]?.opts.disableThinking).toBe(false);
+  });
+
+  it('omits disableThinking when caller does not set it', async () => {
+    const backend = new FakeBackend({
+      initialScript: [
+        { result: { text: 'ok', promptTokens: 10, completionTokens: 5 } },
+      ],
+    });
+    await chunkedSummarize({
+      source: 'short',
+      backend,
+      maxInputTokens: 8192,
+      signal: freshSignal(),
+    });
+    expect(backend.recorded[0]?.opts.disableThinking).toBeUndefined();
+  });
+});

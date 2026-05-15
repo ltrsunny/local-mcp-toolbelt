@@ -484,9 +484,10 @@ export function buildBridgeServer(
         max_chunks: z.number().int().min(1).optional().describe(
           'Safety cap on chunk count. Default 100. Job errors out above this — raise OMCP_CHUNK_SIZE or split the source instead of raising this.',
         ),
+        thinking: ThinkingInputSchema,
       },
     },
-    async ({ text, source_uri, style, max_chunks }, extra: ToolExtra) => {
+    async ({ text, source_uri, style, max_chunks, thinking }, extra: ToolExtra) => {
       const src = await resolveSource(text, source_uri);
       if (!src.ok) {
         return { isError: true as const, content: [{ type: 'text' as const, text: src.message }] };
@@ -530,6 +531,8 @@ export function buildBridgeServer(
           signal: extra.signal,
           chunkSize,
           chunkOverlap,
+          disableThinking:
+            resolveThinking('summarize-long-chunked', thinking) === 'off',
           concurrency,
           onProgress: async (msg, current, total) => {
             // Map chunked progress (variable phases) onto the 5-step bar.
@@ -1215,7 +1218,97 @@ export function buildBridgeServer(
             ],
           };
         }
+        // v0.6.0: inline-content is the primary path (works on sandboxed
+        // clients that can't read file://). For very large results (e.g.
+        // chunked summaries of book-length sources) the bridge returns the
+        // file path instead. Threshold defaults to 1 MB; configurable via
+        // OMCP_INLINE_RESULT_MAX_BYTES.
+        const inlineMaxBytes = (() => {
+          const raw = process.env['OMCP_INLINE_RESULT_MAX_BYTES'];
+          const parsed = raw !== undefined ? Number(raw) : NaN;
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : 1_048_576;
+        })();
+        const bodyBytes = Buffer.byteLength(body, 'utf-8');
+        if (bodyBytes > inlineMaxBytes) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify(
+                  {
+                    file_path: jobRegistry.store.resultPath(job_id),
+                    bytes: bodyBytes,
+                    inline_max_bytes: inlineMaxBytes,
+                    note:
+                      'Result exceeds inline threshold; read the file via your client\'s ' +
+                      'Read tool, or raise OMCP_INLINE_RESULT_MAX_BYTES if the client can ' +
+                      'accept larger inline payloads.',
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
         return { content: [{ type: 'text' as const, text: body }] };
+      },
+    );
+
+    // ── v0.6.0 check_progress ─────────────────────────────────────────────
+    // Lightweight cross-client status poll. Each call is one MCP roundtrip,
+    // returns instantly (<100 ms). Use when the caller is not on Claude Code
+    // (which can use the wait_command Bash one-liner from enqueue_job)
+    // and wants to avoid wait_for_job's 45 s long-poll semantics.
+    // Suggested cadence: every 2 s for the first 60 s, every 5 s thereafter.
+    server.registerTool(
+      'check_progress',
+      {
+        title: 'Lightweight non-blocking status check for an async job (v0.6.0+)',
+        description:
+          'Cross-client universal poll: returns the current status of a job ' +
+          'without blocking. Each call is one MCP roundtrip, instant (<100 ms). ' +
+          'Suggested cadence: every 2 s for the first 60 s, every 5 s thereafter. ' +
+          'COMPARE WITH: wait_for_job (long-poll, blocks up to 45 s, v0.3.0 deprecated) ' +
+          '— use check_progress unless you specifically need long-poll. ' +
+          'COMPARE WITH: wait_command (POSIX one-liner from enqueue_job, Claude-Code only).',
+        inputSchema: {
+          job_id: z.string().min(1).describe('The job_id returned from enqueue_job / enqueue-job.'),
+        },
+      },
+      async ({ job_id }: { job_id: string }) => {
+        const meta = await jobRegistry.getMeta(job_id);
+        if (!meta) {
+          return {
+            isError: true as const,
+            content: [
+              {
+                type: 'text' as const,
+                text: `Job ${job_id} not found (never existed or expired).`,
+              },
+            ],
+          };
+        }
+        const out: Record<string, unknown> = { status: meta.status };
+        // Progress: convert {current, total} to 0-100 percentage when total > 0.
+        // Only chunked tools emit progress; for monolithic tools the field is
+        // omitted from the response (caller treats absence as "no progress data").
+        if (meta.progress && meta.progress.total > 0) {
+          out.progress = Math.round(
+            (meta.progress.current / meta.progress.total) * 100,
+          );
+          if (meta.progress.message) {
+            out.message = meta.progress.message;
+          }
+        }
+        if (meta.status === 'failed' && meta.error) {
+          out.error = meta.error;
+        }
+        return {
+          content: [
+            { type: 'text' as const, text: JSON.stringify(out, null, 2) },
+          ],
+        };
       },
     );
 

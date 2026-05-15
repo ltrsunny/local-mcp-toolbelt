@@ -116,6 +116,14 @@ export interface ChunkedSummarizeOptions {
   chunkOverlap?: number;
   /** Override default fan-out concurrency (env: OMCP_CHUNK_CONCURRENCY). */
   concurrency?: number;
+  /**
+   * Forwarded to every internal `backend.chat()` call (fast-path, MAP,
+   * REDUCE, partial-REDUCE, recursive REDUCE). When `true`, suppresses
+   * the model's reasoning trace (`/no_think` suffix). When `false`,
+   * thinking is allowed. When `undefined`, the backend falls back to
+   * env-var / its own default. v0.6.0+.
+   */
+  disableThinking?: boolean;
   /** Optional progress callback wired to MCP `sendProgress`. */
   onProgress?: (msg: string, current: number, total: number) => void | Promise<void>;
 }
@@ -251,6 +259,7 @@ async function runFastPath(
       user: fastPathUserPrompt(opts.source, opts.style),
       temperature: 0.2,
       maxInputTokens: opts.maxInputTokens,
+      disableThinking: opts.disableThinking,
     },
     callSignal,
   );
@@ -283,6 +292,7 @@ async function runSingleChunk(
       temperature: 0.2,
       maxInputTokens: chunkSize + PROMPT_OVERHEAD_TOKENS,
       maxOutputTokens: MAP_OUTPUT_BUDGET,
+      disableThinking: opts.disableThinking,
     },
     callSignal,
   );
@@ -341,6 +351,7 @@ async function runMapPhase(
               temperature: 0.2,
               maxInputTokens: chunkSize + PROMPT_OVERHEAD_TOKENS,
               maxOutputTokens: MAP_OUTPUT_BUDGET,
+              disableThinking: opts.disableThinking,
             },
             callSignal,
           );
@@ -420,6 +431,7 @@ async function reduceRecursive(
           temperature: 0.2,
           maxInputTokens: REDUCE_BUCKET_TOKENS + PROMPT_OVERHEAD_TOKENS,
           maxOutputTokens: REDUCE_OUTPUT_BUDGET,
+          disableThinking: opts.disableThinking,
         },
         callSignal,
       );
@@ -490,6 +502,7 @@ async function reduceRecursive(
           temperature: 0.2,
           maxInputTokens: REDUCE_BUCKET_TOKENS + PROMPT_OVERHEAD_TOKENS,
           maxOutputTokens: REDUCE_OUTPUT_BUDGET,
+          disableThinking: opts.disableThinking,
         },
         callSignal,
       );
@@ -560,6 +573,7 @@ async function reduceRecursive(
               // Intermediate reduces use MAP-sized output (terser);
               // final-pass output uses the larger budget.
               maxOutputTokens: MAP_OUTPUT_BUDGET,
+              disableThinking: opts.disableThinking,
             },
             callSignal,
           );
