@@ -59,6 +59,14 @@ export interface JobMetadata {
   footer?: string;
   /** Whether the `<id>.md` result body has been written yet. */
   has_result_md?: boolean;
+  /**
+   * The thinking-mode value resolved at enqueue time (via
+   * `resolveThinking()` in `src/config/thinking-defaults.ts`). When set,
+   * the runner injects `thinking: thinking_resolved` into the wrapped
+   * tool's `args` dict before invocation, so the underlying tool runs
+   * with the caller's intended thinking mode. v0.6.0+.
+   */
+  thinking_resolved?: 'on' | 'off';
 }
 
 export interface JobStoreOptions {

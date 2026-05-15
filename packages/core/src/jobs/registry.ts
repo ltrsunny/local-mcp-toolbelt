@@ -91,9 +91,12 @@ export class JobRegistry extends EventEmitter {
     toolName: string,
     args: Record<string, unknown>,
     ttl_days = 7,
+    thinking_resolved?: 'on' | 'off',
   ): Promise<JobMetadata> {
     if (this.dedupEnabled) {
-      const h = hashRequest(toolName, args);
+      // Hash includes thinking_resolved so two enqueues differing only by
+      // thinking mode are distinct jobs (different runtime behavior).
+      const h = hashRequest(toolName, args, thinking_resolved);
       const existingId = this.inflightHashes.get(h);
       if (existingId) {
         const existing = this.active.get(existingId);
@@ -110,6 +113,7 @@ export class JobRegistry extends EventEmitter {
         status: 'queued',
         enqueued_at: new Date().toISOString(),
         ttl_days,
+        ...(thinking_resolved !== undefined ? { thinking_resolved } : {}),
       };
       // Persist FIRST, then mutate in-memory state. If writeMetadata throws
       // (full disk, ENOSPC, EIO), in-memory state stays clean — caller sees
@@ -132,6 +136,7 @@ export class JobRegistry extends EventEmitter {
       status: 'queued',
       enqueued_at: new Date().toISOString(),
       ttl_days,
+      ...(thinking_resolved !== undefined ? { thinking_resolved } : {}),
     };
     await this.store.writeMetadata(meta);
     this.active.set(job_id, meta);
@@ -159,7 +164,8 @@ export class JobRegistry extends EventEmitter {
     if (next.status === 'done' || next.status === 'failed') {
       this.active.delete(job_id);
       // Clear the dedup entry — same args become eligible to re-enqueue.
-      const h = hashRequest(next.tool_name, next.args);
+      // Hash must include thinking_resolved (same shape used by enqueue()).
+      const h = hashRequest(next.tool_name, next.args, next.thinking_resolved);
       if (this.inflightHashes.get(h) === job_id) {
         this.inflightHashes.delete(h);
       }
@@ -198,9 +204,24 @@ export class JobRegistry extends EventEmitter {
   }
 }
 
-/** Stable hash of (tool_name + canonically-keyed args). For dedup only. */
-function hashRequest(toolName: string, args: Record<string, unknown>): string {
-  const canonical = JSON.stringify({ t: toolName, a: sortKeys(args) });
+/**
+ * Stable hash of (tool_name + canonically-keyed args + optional
+ * thinking_resolved). For dedup only.
+ *
+ * `thinking_resolved` is part of the hash because two enqueues differing
+ * only by thinking mode produce different runtime behavior (different
+ * `/no_think` suffix → different model output). They are distinct jobs.
+ */
+function hashRequest(
+  toolName: string,
+  args: Record<string, unknown>,
+  thinking_resolved?: 'on' | 'off',
+): string {
+  const canonical = JSON.stringify({
+    t: toolName,
+    a: sortKeys(args),
+    ...(thinking_resolved !== undefined ? { th: thinking_resolved } : {}),
+  });
   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
 }
 

@@ -13,7 +13,11 @@ import { BridgeDefense } from './defense.js';
 import { sanitizeSchemaForStrictMode } from './sanitize.js';
 import { readSource, readSourceOptionsFromEnv } from '../io/sourceReader.js';
 import { backendForTool } from './backend-factory.js';
-import { resolveThinking } from '../config/thinking-defaults.js';
+import {
+  resolveThinking,
+  ThinkingInputSchema,
+  type ThinkingMode,
+} from '../config/thinking-defaults.js';
 import { chunkedSummarize } from '../chunking/map-reduce.js';
 import { parseDiffText, deriveTestCoverageHint, formatParsedDiffForPrompt } from '../diff/parse.js';
 import type { JobRegistry } from '../jobs/registry.js';
@@ -304,9 +308,10 @@ export function buildBridgeServer(
         style: z.string().optional().describe(
           'Optional style hint, e.g. "one sentence", "three bullet points", "for a non-technical reader".',
         ),
+        thinking: ThinkingInputSchema,
       },
     },
-    async ({ text, source_uri, style }, extra: ToolExtra) => {
+    async ({ text, source_uri, style, thinking }, extra: ToolExtra) => {
       const src = await resolveSource(text, source_uri);
       if (!src.ok) {
         return { isError: true as const, content: [{ type: 'text' as const, text: src.message }] };
@@ -343,7 +348,7 @@ export function buildBridgeServer(
             temperature: 0.2,
             maxInputTokens: tierCfg.numCtx ?? 8192,
             maxOutputTokens: MAX_OUTPUT_TOKENS.summarize,
-            disableThinking: resolveThinking('summarize') === 'off',
+            disableThinking: resolveThinking('summarize', thinking) === 'off',
           },
           extra.signal,
         );
@@ -391,9 +396,10 @@ export function buildBridgeServer(
         style: z.string().optional().describe(
           'Optional style hint. Default is 1-2 sentence lead plus 3-6 bullets.',
         ),
+        thinking: ThinkingInputSchema,
       },
     },
-    async ({ text, source_uri, style }, extra: ToolExtra) => {
+    async ({ text, source_uri, style, thinking }, extra: ToolExtra) => {
       const src = await resolveSource(text, source_uri);
       if (!src.ok) {
         return { isError: true as const, content: [{ type: 'text' as const, text: src.message }] };
@@ -430,7 +436,7 @@ export function buildBridgeServer(
             temperature: 0.2,
             maxInputTokens: tierCfg.numCtx ?? 8192,
             maxOutputTokens: MAX_OUTPUT_TOKENS['summarize-long'],
-            disableThinking: resolveThinking('summarize-long') === 'off',
+            disableThinking: resolveThinking('summarize-long', thinking) === 'off',
           },
           extra.signal,
         );
@@ -607,9 +613,10 @@ export function buildBridgeServer(
         explain: z.boolean().optional().describe(
           'If true, include a short reason field in the output.',
         ),
+        thinking: ThinkingInputSchema,
       },
     },
-    async ({ text, categories, allow_multiple, explain }, extra: ToolExtra) => {
+    async ({ text, categories, allow_multiple, explain, thinking }, extra: ToolExtra) => {
       const tierKey = tierForTool(config, 'classify');
       const tierCfg = config.tiers[tierKey];
       const t0 = Date.now();
@@ -651,7 +658,7 @@ export function buildBridgeServer(
             maxInputTokens: tierCfg.numCtx ?? 8192,
             format: formatSchema,
             maxOutputTokens: MAX_OUTPUT_TOKENS.classify,
-            disableThinking: resolveThinking('classify') === 'off',
+            disableThinking: resolveThinking('classify', thinking) === 'off',
           },
           extra.signal,
         );
@@ -700,9 +707,10 @@ export function buildBridgeServer(
           'JSON Schema object describing the desired output. Obtain via z.toJSONSchema(yourSchema). ' +
           'Avoid z.email(), z.url(), z.string().regex() — they crash Ollama\'s grammar compiler.',
         ),
+        thinking: ThinkingInputSchema,
       },
     },
-    async ({ text, source_uri, schema }, extra: ToolExtra) => {
+    async ({ text, source_uri, schema, thinking }, extra: ToolExtra) => {
       const src = await resolveSource(text, source_uri);
       if (!src.ok) {
         return { isError: true as const, content: [{ type: 'text' as const, text: src.message }] };
@@ -749,7 +757,7 @@ export function buildBridgeServer(
             maxInputTokens: tierCfg.numCtx ?? 8192,
             format: sanitized.schema,
             maxOutputTokens: MAX_OUTPUT_TOKENS.extract,
-            disableThinking: resolveThinking('extract') === 'off',
+            disableThinking: resolveThinking('extract', thinking) === 'off',
           },
           extra.signal,
         );
@@ -807,9 +815,10 @@ export function buildBridgeServer(
         instruction: z.string().min(1).describe(
           'The transformation instruction, e.g. "Translate to Spanish", "Fix grammar", "Make it more formal".',
         ),
+        thinking: ThinkingInputSchema,
       },
     },
-    async ({ text, source_uri, instruction }, extra: ToolExtra) => {
+    async ({ text, source_uri, instruction, thinking }, extra: ToolExtra) => {
       const src = await resolveSource(text, source_uri);
       if (!src.ok) {
         return { isError: true as const, content: [{ type: 'text' as const, text: src.message }] };
@@ -845,7 +854,7 @@ export function buildBridgeServer(
             temperature: 0.3,
             maxInputTokens: tierCfg.numCtx ?? 8192,
             maxOutputTokens: MAX_OUTPUT_TOKENS.transform,
-            disableThinking: resolveThinking('transform') === 'off',
+            disableThinking: resolveThinking('transform', thinking) === 'off',
           },
           extra.signal,
         );
@@ -891,10 +900,15 @@ export function buildBridgeServer(
           'file:// or http(s):// URI to read the diff from. Required if diff_text is not provided. ' +
           'Preferred for diffs > 4 KB to avoid ARG_MAX limits and save frontier tokens.',
         ),
+        thinking: ThinkingInputSchema,
       },
     },
     async (
-      { diff_text, source_uri }: { diff_text?: string; source_uri?: string },
+      {
+        diff_text,
+        source_uri,
+        thinking,
+      }: { diff_text?: string; source_uri?: string; thinking?: ThinkingMode },
       extra: ToolExtra,
     ) => {
       const src = await resolveSource(diff_text, source_uri);
@@ -970,7 +984,7 @@ export function buildBridgeServer(
             maxInputTokens: tierCfg.numCtx ?? 8192,
             format: sanitized.schema,
             maxOutputTokens: MAX_OUTPUT_TOKENS['diff-semantic-index'],
-            disableThinking: resolveThinking('diff-semantic-index') === 'off',
+            disableThinking: resolveThinking('diff-semantic-index', thinking) === 'off',
           },
           extra.signal,
         );
@@ -1245,6 +1259,114 @@ export function buildBridgeServer(
                     job_id: meta.job_id,
                     enqueued_at: meta.enqueued_at,
                     expires_at: expiresAt,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        } catch (err) {
+          return toolCallError(err);
+        }
+      },
+    );
+
+    // ── v0.6.0 enqueue_job ────────────────────────────────────────────────
+    // New snake-case tool name matches sister tools (wait_for_job /
+    // read_job_result). Strict superset of v0.3.0 `enqueue-job`:
+    //  - Accepts `thinking?: 'on'|'off'|'auto'` per scope memo v0.6.0 §3.1
+    //  - Computes `thinking_resolved` via resolveThinking(); the runner
+    //    injects it into args before invoking the wrapped tool, so the
+    //    wrapped tool runs under the caller's intended thinking mode.
+    //  - Returns `result_uri` (file:// of the eventual <id>.md result body)
+    //    and, when the client advertises bash capability, a `wait_command`
+    //    Claude-Code-friendly one-liner.
+    //
+    // v0.3.0 `enqueue-job` stays registered for backward compat; Day 4
+    // will mark it deprecated in description. v0.7+ removes it.
+    //
+    // Forward-compat (scope memo §3 head note): this triad is a temporary
+    // compat layer for clients that don't yet support MCP Tasks SEP-2663.
+    // When SEP stabilizes + a major client ships native task return, the
+    // entire triad sunsets.
+    server.registerTool(
+      'enqueue_job',
+      {
+        title: 'Enqueue a long-running tool call as a background job (v0.6.0)',
+        description:
+          'DELEGATION GUIDANCE: use this when a regular tool call would exceed your MCP ' +
+          'client request timeout (Claude Code: ~60 s). The job runs in the background; ' +
+          'you receive a job_id + result_uri immediately. ' +
+          'POLLING: use check_progress(job_id) to check status (v0.6.0+) or wait_for_job ' +
+          '(v0.3.0 long-poll, deprecated). Fetch the body with read_job_result(job_id). ' +
+          'BASH FAST-PATH: when the server returns wait_command (env OMCP_ASSUME_BASH_CLIENT=1 ' +
+          'or future MCP capability handshake), Claude Code clients can paste it into Bash ' +
+          'to collapse poll+read into one call (10-minute cap, well above any oMLX task). ' +
+          'THINKING: pass thinking="on"|"off"|"auto" to override the per-tool default the ' +
+          'wrapped tool would otherwise use; the chosen value is persisted in job metadata ' +
+          'and threaded back into the tool call. ' +
+          'Idempotency: dedupes by hash(tool + args + thinking_resolved) — repeated calls ' +
+          'with identical inputs while a prior job is still queued/running return the ' +
+          'existing job_id, not a fresh one.',
+        inputSchema: {
+          tool: z.enum(ASYNC_TOOL_WHITELIST).describe(
+            'Which v0.2.0/v0.5.0 tool to run as a job. Whitelisted to prevent recursion or self-reference.',
+          ),
+          args: z.record(z.string(), z.unknown()).describe(
+            'Args object forwarded verbatim to the wrapped tool. The runner additionally ' +
+              'merges `thinking: thinking_resolved` before invocation when applicable.',
+          ),
+          thinking: ThinkingInputSchema,
+          ttl_days: z.number().int().min(1).max(30).optional().describe(
+            'How many days the result stays in `~/.local-mcp/jobs/` before GC. Default 7.',
+          ),
+        },
+      },
+      async ({
+        tool,
+        args,
+        thinking,
+        ttl_days,
+      }: {
+        tool: typeof ASYNC_TOOL_WHITELIST[number];
+        args: Record<string, unknown>;
+        thinking?: ThinkingMode;
+        ttl_days?: number;
+      }) => {
+        try {
+          const thinking_resolved = resolveThinking(tool, thinking);
+          const meta = await jobRegistry.enqueue(
+            tool,
+            args,
+            ttl_days ?? 7,
+            thinking_resolved,
+          );
+          jobRunner.schedule(meta);
+          const resultPath = jobRegistry.store.resultPath(meta.job_id);
+          const result_uri = `file://${resultPath}`;
+          const expiresAt = new Date(
+            new Date(meta.enqueued_at).getTime() + meta.ttl_days * 86400_000,
+          ).toISOString();
+          // Capability detection (Day 2: env var stub; future: MCP handshake).
+          // POSIX-only one-liner (no [[, no zsh-isms) — portable across
+          // /bin/sh, bash, zsh that Claude Code might invoke.
+          const bashCapable = process.env['OMCP_ASSUME_BASH_CLIENT'] === '1';
+          const wait_command = bashCapable
+            ? `while [ ! -f ${resultPath} ]; do sleep 5; done; cat ${resultPath}`
+            : undefined;
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify(
+                  {
+                    job_id: meta.job_id,
+                    enqueued_at: meta.enqueued_at,
+                    expires_at: expiresAt,
+                    result_uri,
+                    thinking_resolved,
+                    ...(wait_command !== undefined ? { wait_command } : {}),
                   },
                   null,
                   2,

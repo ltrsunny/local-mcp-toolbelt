@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /**
  * Per-tool thinking-mode defaults + resolver.
  *
@@ -33,6 +35,25 @@
  * - `'auto'`: defer to env-var + registry resolution (= the v0.6.0 default)
  */
 export type ThinkingMode = 'on' | 'off' | 'auto';
+
+/**
+ * Reusable zod schema fragment for the `thinking` input field that v0.6.0
+ * adds to every existing tool's input schema (scope memo §4). All tools
+ * import this rather than defining their own `z.enum(...)` to keep the
+ * description and value set consistent.
+ */
+export const ThinkingInputSchema = z
+  .enum(['on', 'off', 'auto'])
+  .optional()
+  .describe(
+    'Override the server-side per-tool thinking-mode default for this call. ' +
+      '"on" forces the model to emit a reasoning trace (slower; tends to help ' +
+      'reasoning-heavy tasks like classify / extract / transform). ' +
+      '"off" suppresses the trace (faster; tends to help prose tasks like summarize*). ' +
+      '"auto" (or omitted) falls back to env vars OMCP_THINKING_<TOOL> / ' +
+      'OMCP_THINKING_MODE and then the registry default. See ' +
+      'src/config/thinking-defaults.ts for the registry.',
+  );
 
 /**
  * Per-tool baseline opinions. Tool names match the MCP tool names exactly
