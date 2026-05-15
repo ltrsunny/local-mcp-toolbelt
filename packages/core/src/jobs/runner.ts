@@ -81,11 +81,20 @@ export class JobRunner {
       // Inject thinking mode into args before invoking the wrapped tool,
       // so it sees the same `thinking` field a sync caller would have set.
       // Only set when the registry resolved a concrete on/off — leaves the
-      // wrapped tool to its own registry default otherwise. v0.6.0+.
+      // wrapped tool to its own registry default otherwise.
+      //
+      // Deep-clone via structuredClone to defend against the wrapped tool
+      // mutating nested objects (e.g. an extract handler that mutates a
+      // schema's properties dict). Adversarial review (gem/copilot/nv_pro)
+      // flagged the prior shallow spread `{ ...job.args, thinking: ... }`
+      // as race-prone when runner concurrency > 1 or when the same job is
+      // re-read from disk; the deep clone shifts the immutability contract
+      // from "trust the handler" to "enforce at the boundary". v0.6.0+.
+      const baseArgs: Record<string, unknown> = structuredClone(job.args);
       const argsForInvoke: Record<string, unknown> =
         job.thinking_resolved !== undefined
-          ? { ...job.args, thinking: job.thinking_resolved }
-          : job.args;
+          ? { ...baseArgs, thinking: job.thinking_resolved }
+          : baseArgs;
       const result = await this.invoker(job.tool_name, argsForInvoke, extra);
       const text = result.content
         .filter((c) => c.type === 'text')

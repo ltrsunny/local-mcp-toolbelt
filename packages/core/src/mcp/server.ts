@@ -54,6 +54,26 @@ export interface BridgeServerOptions {
   toolHandlers?: Map<string, CapturedToolHandler>;
 }
 
+// ── Shell helpers ──────────────────────────────────────────────────────────
+
+/**
+ * POSIX-safe single-quote shell escape. Wraps the input in single quotes
+ * and escapes any embedded single quotes with the `'\''` close-reopen
+ * sequence. Used by enqueue_job's `wait_command` to defend against spaces
+ * and shell metacharacters in `result_path` (baseDir can be set via
+ * OMCP_MEMORY_DIR which is user-controlled).
+ *
+ * Disables ALL parameter / command substitution inside the quoted region,
+ * including $(...), backticks, $VAR, and globs. Safe across /bin/sh,
+ * bash, zsh.
+ *
+ * Example: `/tmp/foo bar` → `'/tmp/foo bar'`
+ * Example: `/tmp/it's/here` → `'/tmp/it'\''s/here'`
+ */
+function bashSingleQuote(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
 // ── System prompts ──────────────────────────────────────────────────────────
 
 const SUMMARIZE_SYSTEM =
@@ -1293,10 +1313,14 @@ export function buildBridgeServer(
         // Progress: convert {current, total} to 0-100 percentage when total > 0.
         // Only chunked tools emit progress; for monolithic tools the field is
         // omitted from the response (caller treats absence as "no progress data").
+        // Clamp to [0, 100] — adversarial review (3/3 voices) flagged that
+        // current > total (possible via chunking bugs or out-of-order updates)
+        // could produce >100% or even negative values.
         if (meta.progress && meta.progress.total > 0) {
-          out.progress = Math.round(
+          const raw = Math.round(
             (meta.progress.current / meta.progress.total) * 100,
           );
+          out.progress = Math.max(0, Math.min(raw, 100));
           if (meta.progress.message) {
             out.message = meta.progress.message;
           }
@@ -1444,9 +1468,20 @@ export function buildBridgeServer(
           // Capability detection (Day 2: env var stub; future: MCP handshake).
           // POSIX-only one-liner (no [[, no zsh-isms) — portable across
           // /bin/sh, bash, zsh that Claude Code might invoke.
+          //
+          // Path is wrapped in single quotes with single-quote escaping
+          // (bashSingleQuote helper) to defend against spaces, $, `, ", and
+          // other shell metacharacters that could appear in a user's
+          // OMCP_MEMORY_DIR override. nanoid(10) job_ids are path-safe,
+          // but baseDir is user-controlled. Single-quote wrapping disables
+          // ALL parameter / command substitution inside the quotes; the
+          // closing-quote escape sequence `'\''` lets a literal quote
+          // appear without breaking out of the wrap. Adversarial review
+          // (gem/copilot/nv_pro) all flagged unquoted interpolation as
+          // revert-worthy; this fix lands ahead of Day 4.
           const bashCapable = process.env['OMCP_ASSUME_BASH_CLIENT'] === '1';
           const wait_command = bashCapable
-            ? `while [ ! -f ${resultPath} ]; do sleep 5; done; cat ${resultPath}`
+            ? `while [ ! -f ${bashSingleQuote(resultPath)} ]; do sleep 5; done; cat ${bashSingleQuote(resultPath)}`
             : undefined;
           return {
             content: [

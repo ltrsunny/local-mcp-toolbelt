@@ -142,6 +142,22 @@ describe('enqueue_job — registration + shape', () => {
     // POSIX-only — no [[ or zsh-isms
     expect(body.wait_command).not.toContain('[[');
   });
+
+  it('wait_command shell-quotes the result_uri path (post-review fix)', async () => {
+    process.env.OMCP_ASSUME_BASH_CLIENT = '1';
+    const res = await client.callTool({
+      name: 'enqueue_job',
+      arguments: { tool: 'classify', args: { text: 'x', categories: ['a', 'b'] } },
+    });
+    const body = parseResp(res);
+    const cmd = body.wait_command as string;
+    // Path should be wrapped in single quotes — defends against spaces,
+    // $, `, etc. in the user's OMCP_MEMORY_DIR override. Adversarial-
+    // review fix; 3/3 voices flagged unquoted interpolation as
+    // revert-worthy.
+    expect(cmd).toMatch(/\[ ! -f '[^']+\.md' \]/);
+    expect(cmd).toMatch(/cat '[^']+\.md'/);
+  });
 });
 
 describe('enqueue_job — thinking resolution', () => {
@@ -200,6 +216,35 @@ describe('enqueue_job — runner integration', () => {
     expect(lastInvokerArgs).toBeDefined();
     expect(lastInvokerArgs?.thinking).toBe('on');
     expect(lastInvokerArgs?.text).toBe('hello');
+  });
+
+  it('runner deep-clones args so handler mutations do not leak (post-review fix)', async () => {
+    // Handler mutates a nested array inside args. Adversarial-review fix:
+    // runner must deep-clone via structuredClone so the in-memory job
+    // state is unaffected. 3/3 voices flagged the prior shallow spread.
+    toolHandlers.set('classify', async (args) => {
+      const a = args as { categories: string[] };
+      a.categories.push('mutated-by-handler');
+      return { content: [{ type: 'text', text: 'ok' }] };
+    });
+
+    const e = await client.callTool({
+      name: 'enqueue_job',
+      arguments: {
+        tool: 'classify',
+        args: { text: 'x', categories: ['original-a', 'original-b'] },
+      },
+    });
+    const { job_id } = parseResp(e);
+    await runner.waitIdle();
+
+    // The persisted job's args.categories must still equal the original;
+    // the handler's mutation should have hit the clone, not the source.
+    const meta = await registry.getMeta(job_id);
+    const persistedCategories = (meta?.args as { categories: string[] })
+      .categories;
+    expect(persistedCategories).toEqual(['original-a', 'original-b']);
+    expect(persistedCategories).not.toContain('mutated-by-handler');
   });
 });
 
