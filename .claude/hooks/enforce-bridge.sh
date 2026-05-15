@@ -23,10 +23,17 @@
 #      Threshold: OMCP_HOOK_THRESHOLD_BYTES (default 1024).
 #      Above the threshold → block.
 #
-#   2. Project-internal "analysis paths" (research artifacts, diagnostics)
+#   2. Project-internal "analysis paths" (research artifacts, diagnostics
+#      — primarily write-once, never iteratively edited)
 #      Default paths: .claude/brainstorm .claude/diagnostics
-#                     docs/notes docs/scope-memos docs/prior-art
+#                     docs/notes docs/prior-art
 #      Threshold: OMCP_HOOK_ANALYSIS_THRESHOLD_BYTES (default 4096).
+#      NOTE: docs/scope-memos is intentionally NOT in the default set —
+#      scope memos are design documents under iterative editing, same
+#      tier as source code. They need raw Read access for Edit-time
+#      precision-matching. A user can still add the path back via
+#      OMCP_HOOK_ANALYSIS_PATHS if their team uses scope-memos as
+#      research-raw output instead.
 #
 #   3. Project-internal data files by extension
 #      Default extensions: log diff jsonl ips ndjson csv
@@ -48,7 +55,7 @@ set -euo pipefail
 EXTERNAL_THRESHOLD="${OMCP_HOOK_THRESHOLD_BYTES:-1024}"
 ANALYSIS_THRESHOLD="${OMCP_HOOK_ANALYSIS_THRESHOLD_BYTES:-4096}"
 
-DEFAULT_ANALYSIS_PATHS=".claude/brainstorm:.claude/diagnostics:docs/notes:docs/scope-memos:docs/prior-art"
+DEFAULT_ANALYSIS_PATHS=".claude/brainstorm:.claude/diagnostics:docs/notes:docs/prior-art"
 ANALYSIS_PATHS_RAW="${OMCP_HOOK_ANALYSIS_PATHS:-$DEFAULT_ANALYSIS_PATHS}"
 
 DEFAULT_DATA_EXTS="log diff jsonl ips ndjson csv"

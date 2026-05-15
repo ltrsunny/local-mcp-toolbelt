@@ -119,7 +119,7 @@ Three enforcement bands:
 - **External files > 1 KB** — outside project + `~/.claude` + `~/.omlx`.
   Route via `source_uri`.
 - **Project-internal analysis paths > 4 KB** — `.claude/brainstorm`,
-  `.claude/diagnostics`, `docs/notes`, `docs/scope-memos`, `docs/prior-art`.
+  `.claude/diagnostics`, `docs/notes`, `docs/prior-art`.
 - **Project-internal data files > 4 KB** by extension — `*.log`, `*.diff`,
   `*.jsonl`, `*.ips`, `*.ndjson`, `*.csv`.
 
