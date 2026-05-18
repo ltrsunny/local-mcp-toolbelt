@@ -12,7 +12,7 @@ program
     'local-mcp-toolbelt — MCP server delegating to a local oMLX inference daemon. ' +
       'Inspect hardware, manage tiers, and serve over stdio.',
   )
-  .version('0.5.0');
+  .version('0.6.0');
 
 program
   .command('hardware')

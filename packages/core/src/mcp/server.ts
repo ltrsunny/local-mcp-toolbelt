@@ -280,7 +280,7 @@ export function buildBridgeServer(
 
   const server = new McpServer({
     name: options.name ?? 'local-mcp',
-    version: options.version ?? '0.5.0',
+    version: options.version ?? '0.6.0',
   });
 
   // ── tool-handler capture (v0.3.0) ─────────────────────────────────────────

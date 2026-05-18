@@ -1,6 +1,6 @@
 {
   "name": "local-mcp-toolbelt",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Local-first MCP toolbelt: delegates summarise/classify/extract/transform tasks from any MCP client to a local oMLX inference server. Apple Silicon, MLX-accelerated, KV-cache persistent.",
   "license": "Apache-2.0",
   "repository": {
@@ -30,6 +30,7 @@
     "test:watch": "vitest",
     "clean": "rm -rf dist",
     "download-models": "node scripts/download-models.mjs",
+    "smoke:cross-client": "node scripts/cross-client-smoke.mjs",
     "prepublishOnly": "npm run build && npm test && node tests/check-version-sync.mjs"
   },
   "engines": {

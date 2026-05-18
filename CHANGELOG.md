@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.6.0] — TBD
+## [0.6.0] — 2026-05-18
 
 ### Theme
 
@@ -86,6 +86,13 @@ dogfood pain.
   5-voice fan-out 2026-05-15: 0/4 reliable voices to keep as default
   (Qwen-family inside view explicitly disclosed bias and still voted
   against). See `.claude/brainstorm/tier-d-demotion-*` artifacts.
+  Caveat: OOM evidence was collected on macOS 25 (Sequoia); macOS 26
+  (Tahoe) may relax Metal command-buffer accounting, but the UX math
+  is OS-agnostic — 14B (~7-8 GB) + hot_cache (~6 GB) ≈ 14 GB of 16 GB
+  unified memory leaves <2 GB for host OS, IDE, and background
+  processes. Tier D remains the wrong default for 16 GB regardless of
+  macOS version. v0.7+ may re-evaluate on macOS 26 + Foundation Models
+  data (queued as separate spike).
 
 ### Fixed
 
@@ -106,9 +113,19 @@ dogfood pain.
   native task return. When SEP stabilises and a major client ships
   native support, the triad sunsets entirely (the 6 sync tools plug
   in directly — they already accept `thinking`).
-- Tests: 147 → ~170 unit. New coverage for `enqueue_job` v0.6.0
-  shape, `check_progress` status + clamp, runner deep-clone,
-  thinking-resolver registry + env overrides, `wait_command` quoting.
+- Tests: 147 → 207 unit. New coverage: `enqueue_job` v0.6.0 shape,
+  `check_progress` status + clamp, runner deep-clone, thinking-resolver
+  registry + env overrides, `wait_command` quoting, and the new
+  `thinking-mode-behavioural.test.ts` (14 tests asserting boundary
+  propagation through `RecorderBackend` for all 7 sync tools, per-call
+  overrides, and env-var overrides).
+- Cross-client smoke: `scripts/cross-client-smoke.mjs` (run via
+  `npm run smoke:cross-client`) exercises the real stdio transport
+  end-to-end — spawns the bridge via `node dist/bin/cli.js serve`,
+  asserts `initialize`, `tools/list` set membership (12 tools), and a
+  representative `check_progress` round-trip. Verifies what
+  Claude Desktop / Cursor / Cline will actually see at the JSON-RPC
+  protocol layer, not the InMemoryTransport used in the unit suite.
 - **Bridge enforcement hook** introduced in v0.5.0 was extended this
   cycle to also gate project-internal "analysis paths" (.claude/
   brainstorm, .claude/diagnostics, docs/notes, docs/scope-memos,
