@@ -1,0 +1,3 @@
+SHIP
+
+The diff successfully implements the Tier D demotion with consistent documentation updates across CHANGELOG, CLAUDE.md, and READMEs, explicitly disclosing the Qwen-family bias and hardware constraints (16GB Mac OOM risks) as required. The critical fix to `download-models.mjs` correctly re-maps Tier B to the distinct 4B-Instruct model (resolving the previous dedup collision with Tier C) and updates the default tier list to exclude D, while `cli.ts` and `tiers.ts` reflect the new defaults and rationale. No residual issues found; the logic is sound, the migration path for existing users is clear, and the "power-user" opt-in mechanism remains intact via `toolTierMap` and CLI flags.

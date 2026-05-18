@@ -1,0 +1,3 @@
+SHIP
+
+The diff cleanly executes the Tier D demotion with consistent rationale (OOM risk on 16GB Macs, reduced 60s wall pressure) across `CHANGELOG.md`, `CLAUDE.md`, `README.md`, and `tiers.ts`. The critical fix for the Tier B mapping error in `download-models.mjs` is correctly implemented, ensuring the 4B model is actually fetched, and the migration path is clearly documented. The disclosure of Qwen-family bias in the changelog is transparent and appropriately contextualized within the decision log. No residual technical inconsistencies or documentation gaps remain; the change is safe to merge.
