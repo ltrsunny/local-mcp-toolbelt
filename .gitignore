@@ -41,3 +41,7 @@ packages/core/tests/eval/runs/
 # docs/scope-memos from analysis-path gating while it's present).
 # Per-machine state — don't ever commit it.
 .claude/.scope-memo-edit-mode
+
+# Ephemeral working dir for diff captures, audit logs, etc. Anything
+# worth keeping gets moved into .claude/brainstorm/ before commit.
+tmp/

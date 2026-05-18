@@ -76,6 +76,28 @@ dogfood pain.
 - **`enqueue_job` dedup hash includes `thinking_resolved`** — same
   tool + args + thinking returns the same `job_id`; same tool + args
   + different thinking returns a different `job_id`.
+- **Tier D demoted** (`Qwen3-14B-4bit`). 4-bit 14B (~7-8 GB) +
+  `hot_cache_max_size=6GB` is OOM-prone on 16 GB Mac target hardware;
+  v0.6.0 async triad erodes the 60 s wall pressure that originally
+  motivated the v0.5.0 Tier D promotion. CLAUDE.md tier table no
+  longer lists D; `npm run download-models` defaults to `--tiers B,C`
+  (was `B,C,D`). Code path remains — power-user opt-in via a
+  user-supplied `toolTierMap` override + `--tiers B,C,D` on download.
+  5-voice fan-out 2026-05-15: 0/4 reliable voices to keep as default
+  (Qwen-family inside view explicitly disclosed bias and still voted
+  against). See `.claude/brainstorm/tier-d-demotion-*` artifacts.
+
+### Fixed
+
+- **`download-models` Tier B mapping** (pre-existing bug). Before this
+  release `MODELS.B` pointed at `mlx-community/Qwen3-8B-4bit` (same
+  repo as Tier C, deduped away); the actual Tier B model
+  (`Qwen3-4B-Instruct-2507-4bit`) was never downloaded. Tier B
+  routing therefore depended on the model existing locally from
+  some other source. **Migration for existing v0.5.x users**: re-run
+  `cd packages/core && npm run download-models` after upgrade to
+  fetch the 4B-Instruct weights. The script is idempotent — only
+  missing models are downloaded.
 
 ### Notes
 

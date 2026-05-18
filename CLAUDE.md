@@ -33,17 +33,17 @@ inline `text` because raw bytes never enter the frontier context.
 |---|---|---|---|
 | B | Qwen3-4B-Instruct-2507-4bit | 8192 | ✅ default — short tasks |
 | C | Qwen3-8B-4bit | 32768 | ✅ long-form summarize |
-| D | Qwen3-14B-4bit | 16384 | ⚙️ Opt-in for classify + transform; toolTierMap override required |
+
+Tier D (`Qwen3-14B-4bit`) **demoted v0.6.0** — 4-bit 14B (~7-8 GB) +
+6 GB hot_cache → OOM-prone on 16 GB Mac. Power-user opt-in via
+`toolTierMap` + `npm run download-models -- --tiers B,C,D`.
 
 Single backend = `MlxHttpBackend` against `http://127.0.0.1:8000` (oMLX).
-Start oMLX:        `brew services start jundot/omlx/omlx`
-Download weights:  `npm run download-models` (uses oMLX's bundled Python).
-
-oMLX json_schema strict mode (verified 2026-05-07) replaces llama.cpp's GBNF —
-enum + required enforced at decode. Eval (2026-05-11, hot_cache=10GB): 14B
-**warm 1.1s @ ~30 tok/s** (was 12-16 cold). Routable for classify (~8s),
-short summarize (~20s), short transform (~45s). `summarize-long` + `extract`
-stay on B/C — long prefill+decode hit 60s wall. **MLX RSS is misleading**
+Start:  `brew services start jundot/omlx/omlx`. Weights: `npm run
+download-models` (B+C by default). oMLX `json_schema` strict mode
+replaces llama.cpp's GBNF; enum + required enforced at decode.
+`summarize-long`+`extract` stay on B/C — long prefill+decode hit
+Claude Code's 60 s wall on larger tiers. **MLX RSS is misleading**
 (unified-mem mapped, use wall-time). See
 `docs/notes/v0.6.0-60s-wall-brainstorm-2026-05-11.md`.
 

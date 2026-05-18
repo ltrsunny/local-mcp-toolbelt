@@ -32,7 +32,7 @@ program
   )
   .option(
     '--tier-b-model <name>',
-    'oMLX model name for Tier B (default: Qwen3-8B-4bit)',
+    'oMLX model name for Tier B (default: Qwen3-4B-Instruct-2507-4bit)',
     process.env.OMCP_TIER_B_MODEL,
   )
   .option(

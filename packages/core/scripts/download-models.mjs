@@ -4,8 +4,20 @@
  * into `~/.omlx/models/`, the directory oMLX serves from.
  *
  * Usage:
- *   npm run download-models               # all tiers (B+C share Qwen3-8B; D = 14B)
- *   npm run download-models -- --tiers B,C
+ *   npm run download-models               # default: B + C (4B + 8B, ~7.5 GB)
+ *   npm run download-models -- --tiers B,C,D   # power-user: also fetch
+ *                                                14B (~5 GB more). Tier D is
+ *                                                demoted in v0.6.0 — only
+ *                                                stable on 24+ GB Mac with
+ *                                                raised hot_cache_max_size.
+ *   npm run download-models -- --tiers B  # 4B only (~2.5 GB)
+ *
+ * v0.6.0 fix: Tier B previously pointed at `mlx-community/Qwen3-8B-4bit`
+ * (same as C), which meant the actual Tier B model (4B-Instruct-2507)
+ * never got downloaded on a fresh install. Anyone running this script
+ * before this commit only ended up with 8B + 14B, and Tier B routing
+ * (the default for classify / extract / transform / summarize) would
+ * fail at runtime with "model not found". Now B → 4B-Instruct-2507.
  *
  * Requires: oMLX installed (`brew install jundot/omlx/omlx`) — uses oMLX's
  * bundled Python + huggingface_hub. We do NOT add huggingface_hub as an npm
@@ -19,15 +31,21 @@ import path from 'node:path';
 const OMLX_PYTHON = '/opt/homebrew/opt/omlx/libexec/bin/python';
 const MODELS_DIR = path.join(homedir(), '.omlx', 'models');
 
-/** (tier label) → (HF repo, local dir name) */
+/** (tier label) → (HF repo, local dir name). Must stay in lockstep with
+ *  the `mlxModelName` fields in `src/config/tiers.ts`. */
 const MODELS = {
-  B: { repo: 'mlx-community/Qwen3-8B-4bit', dir: 'Qwen3-8B-4bit' }, // shared with C
+  B: {
+    repo: 'mlx-community/Qwen3-4B-Instruct-2507-4bit',
+    dir: 'Qwen3-4B-Instruct-2507-4bit',
+  },
   C: { repo: 'mlx-community/Qwen3-8B-4bit', dir: 'Qwen3-8B-4bit' },
   D: { repo: 'mlx-community/Qwen3-14B-4bit', dir: 'Qwen3-14B-4bit' },
 };
 
 function parseArgs(argv) {
-  const out = { tiers: ['B', 'C', 'D'] };
+  // v0.6.0: Tier D removed from default — demoted to power-user opt-in.
+  // Pass `--tiers B,C,D` to include 14B.
+  const out = { tiers: ['B', 'C'] };
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--tiers') {
       out.tiers = argv[++i].split(',').map((s) => s.trim().toUpperCase());
@@ -70,7 +88,9 @@ async function main() {
     );
     process.exit(2);
   }
-  // De-dup: B and C share Qwen3-8B-4bit; download once.
+  // De-dup by HF repo: in case a future tier remap introduces sharing
+  // (each tier currently maps to a distinct repo since the v0.6.0 fix
+  // that pointed B at 4B-Instruct-2507 instead of 8B).
   const seen = new Set();
   for (const t of tiers) {
     const m = MODELS[t];

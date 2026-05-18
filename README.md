@@ -192,7 +192,7 @@ source_uri: "https://example.com/article.html"
 | `OMCP_MLX_URL` | `http://127.0.0.1:8000` | oMLX server URL — overridden by `--mlx-url` |
 | `OMCP_TIER_B_MODEL` | `Qwen3-4B-Instruct-2507-4bit` | Tier B model name (must exist under `~/.omlx/models/`) |
 | `OMCP_TIER_C_MODEL` | `Qwen3-8B-4bit` | Tier C model name |
-| `OMCP_TIER_D_MODEL` | `Qwen3-14B-4bit` | Tier D model name |
+| `OMCP_TIER_D_MODEL` | `Qwen3-14B-4bit` | Tier D model name (demoted in v0.6.0 — see CLAUDE.md, power-user opt-in only) |
 
 ---
 
@@ -262,7 +262,8 @@ brew services start jundot/omlx/omlx
 # Install dependencies + build
 npm install
 
-# Download MLX weights for all tiers (Tier B/C/D)
+# Download MLX weights — B + C (Tier D demoted in v0.6.0; pass
+# `--tiers B,C,D` only on 24+ GB Mac with raised hot_cache_max_size)
 cd packages/core && npm run download-models
 
 # Verify oMLX is serving
