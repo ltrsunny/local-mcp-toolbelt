@@ -7,7 +7,7 @@
  * or other MCP servers mounted side-by-side.
  *
  * Always-emitted keys (every tool call):
- *   dev.localmcptoolbelt/model            — resolved model id (llama-cpp:<file> or ollama:<tag>)
+ *   dev.localmcptoolbelt/model            — resolved model id (`mlx-http:<model-name>`)
  *   dev.localmcptoolbelt/tier             — tier key: "B" | "C"
  *   dev.localmcptoolbelt/latency_ms       — end-to-end wall-clock ms
  *   dev.localmcptoolbelt/prompt_tokens    — prompt token count

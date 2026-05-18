@@ -61,7 +61,7 @@ export interface ChatResult {
 }
 
 export interface LlmBackend {
-  /** Identifier surfaced in telemetry, e.g. `ollama:qwen2.5:7b`. */
+  /** Identifier surfaced in telemetry, e.g. `mlx-http:Qwen3-4B-Instruct-2507-4bit`. */
   readonly modelId: string;
 
   /**
