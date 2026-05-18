@@ -145,11 +145,11 @@ Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`; `r
 - **Gemini CLI** (`gem "..."` shell function): full ReAct agentic loop —
   WriteFile, Shell, ReadFile, MCP servers, subagents, hooks. `--yolo`
   auto-approves all actions; `-p` is headless/scriptable. Default model:
-  `gemini-3.1-pro-preview` (best available); auto-falls back to
-  `gemini-2.5-pro` → `gemini-2.5-flash` on capacity errors. Override:
-  `GEM_MODEL=gemini-2.5-flash gem "..."`. Best for: divergent web research,
-  adversarial scope-memo reviews, multi-source PA surveys, delegated
-  multi-file tasks. Pro subscription, generous quota.
+  `gemini-3.1-pro-preview`; auto-falls back to `gemini-2.5-pro` →
+  `gemini-2.5-flash` on capacity errors. **For adversarial audit /
+  synthesis: always `gem --strict`** — skips fallback so silent flash
+  degradation can't pollute audit signal. Pro subscription, generous
+  quota.
 - **Copilot CLI** (`copilot -p ... --effort xhigh --yolo`): standalone
   `@github/copilot` npm binary, full agentic. **`--yolo` is required in
   `-p` mode** — it covers all-tools + all-paths + all-urls. Plain
