@@ -157,14 +157,14 @@ Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`; `r
   silent hang (verified 2026-05-11, copilot 1.0.44). `--effort xhigh` =
   max reasoning. Best for: multi-file refactors, GitHub-MCP context
   (issues, PRs). 50 premium/month.
-- **Nvidia NIM** (`nv_sum`, `nv_pro` shell functions): free OpenAI-compatible
-  inference. `nv_sum` → llama-3.2-3b for fast small tasks; `nv_pro` →
-  qwen3.5-397b-a17b for heavy single-shot analysis (verified live
-  2026-05-10; deepseek-v4-pro is currently capacity-exhausted, kimi-k2.6
-  has tokenizer corruption). No agentic loop — pipe-in / Q&A only. Use
-  when a task needs frontier-class inference but not multi-step tool use.
-  **Always check `/v1/models` for current availability** before assuming
-  a specific model works — config drifts.
+- **Nvidia NIM** (`nv_sum`, `nv_pro`): free OpenAI-compat, ~128 models.
+  `nv_sum`=llama-3.2-3b fast; `nv_pro` default `qwen3.5-397b-a17b` heavy
+  single-shot. **Free-tier composition shifts** (DeepSeek free→preview
+  paid in 2026; llama-3.3-70b flipped 200→000 in 5 min). **Every fan-out
+  enumerate fresh**: `curl /v1/models` + 5-tok smoke-ping; HTTP 200=use,
+  000=skip, 404=removed. No sticky `NV_PRO_MODEL` env default. Subjects
+  =Qwen → exclude `qwen3.5-397b` (self-family bias). No agentic loop —
+  pipe-in / Q&A.
 - **The bridge itself** for everything that fits — see "Bridge-usage
   discipline" above.
 
