@@ -6,7 +6,34 @@
  *
  * Keep prompts in lockstep with server.ts. If server.ts changes a system
  * prompt, this file must change too.
+ *
+ * v0.6.0+ wires per-tool thinking-mode defaults from
+ * `src/config/thinking-defaults.ts` so the eval actually exercises the
+ * behavior server.ts will produce in production. Each invokeX function
+ * now sets `disableThinking` on the backend.chat call based on
+ * `THINKING_DEFAULTS[toolName]`:
+ *   - `classify` / `extract` / `transform` → ON  (disableThinking=false)
+ *   - `summarize*`                          → OFF (disableThinking=true)
+ * Callers can still override per-call via the optional `disableThinking`
+ * parameter (passed through verbatim).
  */
+
+// THINKING_DEFAULTS mirror — must stay in lockstep with
+// src/config/thinking-defaults.ts. Kept inline (not imported from dist)
+// so the eval works whether or not dist/ has been built.
+const THINKING_DEFAULTS = {
+  classify: 'on',
+  extract: 'on',
+  transform: 'on',
+  'diff-semantic-index': 'on',
+  summarize: 'off',
+  'summarize-long': 'off',
+  'summarize-long-chunked': 'off',
+};
+function disableForTool(toolName, override) {
+  if (override !== undefined) return override;
+  return THINKING_DEFAULTS[toolName] !== 'on';
+}
 
 const SUMMARIZE_SYSTEM =
   'You are a precise summarizer. Produce a single-paragraph summary in plain prose. ' +
@@ -49,7 +76,7 @@ const MAX_OUTPUT_TOKENS = {
   extract: 2048,
 };
 
-export async function invokeSummarize(backend, { text, style, maxInputTokens, signal }) {
+export async function invokeSummarize(backend, { text, style, maxInputTokens, signal, disableThinking }) {
   const user = style ? `Style: ${style}\n\nSource:\n${text}` : `Source:\n${text}`;
   return backend.chat({
     system: SUMMARIZE_SYSTEM,
@@ -57,10 +84,11 @@ export async function invokeSummarize(backend, { text, style, maxInputTokens, si
     temperature: 0.2,
     maxInputTokens,
     maxOutputTokens: MAX_OUTPUT_TOKENS.summarize,
+    disableThinking: disableForTool('summarize', disableThinking),
   }, signal);
 }
 
-export async function invokeSummarizeLong(backend, { text, style, maxInputTokens, signal }) {
+export async function invokeSummarizeLong(backend, { text, style, maxInputTokens, signal, disableThinking }) {
   const user = style ? `Style: ${style}\n\nSource:\n${text}` : `Source:\n${text}`;
   return backend.chat({
     system: SUMMARIZE_LONG_SYSTEM,
@@ -68,11 +96,12 @@ export async function invokeSummarizeLong(backend, { text, style, maxInputTokens
     temperature: 0.2,
     maxInputTokens,
     maxOutputTokens: MAX_OUTPUT_TOKENS['summarize-long'],
+    disableThinking: disableForTool('summarize-long', disableThinking),
   }, signal);
 }
 
 export async function invokeClassify(backend, {
-  text, categories, allowMultiple = false, explain = false, maxInputTokens, signal,
+  text, categories, allowMultiple = false, explain = false, maxInputTokens, signal, disableThinking,
 }) {
   const labelsSchema = allowMultiple
     ? { type: 'array', items: { enum: categories }, minItems: 1 }
@@ -87,10 +116,11 @@ export async function invokeClassify(backend, {
     maxInputTokens,
     format: formatSchema,
     maxOutputTokens: MAX_OUTPUT_TOKENS.classify,
+    disableThinking: disableForTool('classify', disableThinking),
   }, signal);
 }
 
-export async function invokeExtract(backend, { text, schema, maxInputTokens, signal }) {
+export async function invokeExtract(backend, { text, schema, maxInputTokens, signal, disableThinking }) {
   return backend.chat({
     system: EXTRACT_SYSTEM,
     user: text,
@@ -98,16 +128,18 @@ export async function invokeExtract(backend, { text, schema, maxInputTokens, sig
     maxInputTokens,
     format: schema,
     maxOutputTokens: MAX_OUTPUT_TOKENS.extract,
+    disableThinking: disableForTool('extract', disableThinking),
   }, signal);
 }
 
-export async function invokeTransform(backend, { text, instruction, maxInputTokens, signal }) {
+export async function invokeTransform(backend, { text, instruction, maxInputTokens, signal, disableThinking }) {
   return backend.chat({
     system: TRANSFORM_SYSTEM,
     user: `Instruction: ${instruction}\n\nText:\n${text}`,
     temperature: 0.3,
     maxInputTokens,
     maxOutputTokens: MAX_OUTPUT_TOKENS.transform,
+    disableThinking: disableForTool('transform', disableThinking),
   }, signal);
 }
 
