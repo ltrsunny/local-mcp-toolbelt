@@ -1,0 +1,7 @@
+Keep Anthropic as the Phase 1 judge to preserve a clean, defensible comparison to v0.5.1. The PM’s intolerance for “lazy shortcuts” argues against a convenience-driven swap; $1–3 in Anthropic credit is a tiny cost relative to the risk of invalidating the release claim. Using the same judge keeps the metric anchored: rerun v0.6.0 with the new thinking-mode defaults and compare directly to the v0.5.1 baseline.
+
+The family-similarity bias for nv_pro (Qwen3.5) is real and material for this context. Large, same-family models often reward stylistic and tokeniser alignment, which can artificially inflate judge scores when the evaluated system also uses Qwen3 variants. That would compromise the integrity of any claim that the thinking-mode defaults drove the improvement rather than judge-model affinity.
+
+Switching judges should be treated as a principled infrastructure decision—not a tactical shortcut in a mid-cycle release. If forward-portable, free, or reproducible judging is a non-negotiable goal for v0.7+, invest the 30–60 minutes now to prototype nv_pro/gem and create a reproducible judge harness; then re-run both v0.5.1 and v0.6.0 under the new judge as part of the v0.7 migration. For v0.6.0 Phase 1, the priority is a clean experiment and credible claim.
+
+Recommendation: Option A (Anthropic API — keep the existing judge for comparability).
