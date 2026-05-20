@@ -149,21 +149,19 @@ Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`; `r
   - `gem-pro` — 2.5-pro via OAuth, full agentic, no fallback.
     **Use for adversarial audit / synthesis.** Expires 6/18.
   - `gem-pro-escalate` — 3.1-pro-preview → 2.5-pro. Sparingly.
-- **Copilot CLI** (`copilot -p ... --effort xhigh --yolo`): standalone
-  `@github/copilot` npm binary, full agentic. **`--yolo` is required in
-  `-p` mode** — it covers all-tools + all-paths + all-urls. Plain
-  `--allow-all-tools` leaves path/URL prompts headless can't answer →
-  silent hang (verified 2026-05-11, copilot 1.0.44). `--effort xhigh` =
-  max reasoning. Best for: multi-file refactors, GitHub-MCP context
-  (issues, PRs). 50 premium/month.
-- **Nvidia NIM** (`nv_sum`, `nv_pro`): free OpenAI-compat, ~128 models.
-  `nv_sum`=llama-3.2-3b fast; `nv_pro` default `qwen3.5-397b-a17b` heavy
-  single-shot. **Free-tier composition shifts** (DeepSeek free→preview
-  paid in 2026; llama-3.3-70b flipped 200→000 in 5 min). **Every fan-out
-  enumerate fresh**: `curl /v1/models` + 5-tok smoke-ping; HTTP 200=use,
-  000=skip, 404=removed. No sticky `NV_PRO_MODEL` env default. Subjects
-  =Qwen → exclude `qwen3.5-397b` (self-family bias). No agentic loop —
-  pipe-in / Q&A.
+- **GitHub Models** (`ghm`, helpers.sh, added 2026-05-18): multi-vendor
+  proxy via PAT `GITHUB_MODELS_TOKEN`. Free quota 50/day high + 150/day
+  low. Catalog: `openai/gpt-4o`, `gpt-4o-mini`, `deepseek/deepseek-r1`
+  (reasoning), `meta/llama-4-maverick-17b`, `mistral-ai/mistral-medium-
+  2505`, `microsoft/phi-4`. `gpt-5` / o-series Azure-preview blocked.
+- **Copilot CLI** (`copilot -p ... --effort xhigh --yolo`): full agentic
+  `@github/copilot`. `--yolo` REQUIRED in `-p` (plain `--allow-all-tools`
+  silent-hangs on path/URL prompts). Student Pack = Copilot Pro,
+  300 premium/month. Best for: cross-repo GitHub-MCP context.
+- **Nvidia NIM** (`nv_sum`, `nv_pro`): free OpenAI-compat gateway, ~120
+  catalog models but **~70% 404 today** (unstable). Every fan-out fresh-
+  smoke via `/v1/models` + 5-tok ping. No sticky `NV_PRO_MODEL` env.
+  Subject=Qwen → exclude `qwen3.5-397b` (self-family bias).
 - **The bridge itself** for everything that fits — see "Bridge-usage
   discipline" above.
 
@@ -178,8 +176,9 @@ them in parallel and Claude synthesizes.
 | Bridge (`mcp__local-mcp__*`) | Structured `extract` / `classify` / `summarize` / `diff-semantic-index`. Small bounded calls. **Use first** — saves frontier without leaving local. |
 | `gem` (3.5-flash, fast) | Fan-out brainstorm voices, short summary / extract / classify. |
 | `gem-pro` (2.5-pro, agentic) | Adversarial review, multi-file refactors, web research. Until 6/18. |
-| `copilot` (GitHub-context) | Cross-repo lookups, issue / PR context, GitHub-MCP tasks. 50 premium / month. |
-| `nv_sum` / `nv_pro` (Nvidia NIM) | Offload single-shot reasoning to a non-Claude / non-Gemini quota. |
+| `ghm` (GitHub Models PAT) | OpenAI/DeepSeek/Llama/Mistral/Phi voices, fan-out diversity. 50/day high. |
+| `copilot` (Student Pro) | Cross-repo lookups, GitHub-MCP, multi-file refactors. 300 premium/month. |
+| `nv_sum` / `nv_pro` (Nvidia NIM) | Offload single-shot reasoning to non-Claude / non-Gemini quota. |
 | Me (Claude) | Orchestrator + final synthesis + decisions. |
 
 **Anti-pattern**: serial fallback ("`gem` failed, switch to `nv_pro`, switch to bridge"). That's the failure mode of v0.3.0 release in this session.
