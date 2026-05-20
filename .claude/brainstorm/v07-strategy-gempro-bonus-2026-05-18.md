@@ -1,0 +1,12 @@
+Here is a ranking of the v0.7 themes and a critique of the v0.8+ direction, framed as requested.
+
+1.  **Zero-friction install:** (Rank 1) Unquestionably the highest value. A project without users has zero value, and a complex install is the single greatest filter to user acquisition. All other features are irrelevant if no one can get the tool running.
+2.  **Platform clarity:** (Rank 2) A close second. Failing fast on unsupported platforms (Windows/Linux) prevents the negative word-of-mouth that comes from user frustration. A user who is told "not for you" can come back later. A user who wastes 10 minutes on an opaque error is lost forever and will warn others away.
+3.  **Lifecycle completeness:** (Rank 3) `uninstall` is critical for user trust, but it's a feature used only once. `verify` is a power-user feature. This theme is essential but provides less *initial* impact than the install experience itself.
+4.  **Single-MCP-client first:** (Rank 4) This is not a value proposition; it's a scope-limiting implementation detail. It enables value but provides none on its own.
+
+Attacking the v0.8 "multi-client" claim is straightforward: it confuses breadth with depth. Expanding to N clients before proving profound value to one is a classic premature scaling error. The highest-leverage v0.8 investment is not chasing a hypothetical user base, but **creating publishable benchmarks and evidence of value.** A report proving "omcp saved average user X% of tokens" creates gravitational pull. It gives users of *all* clients a reason to demand integration, flipping the marketing dynamic from push to pull. Prove the *why* before expanding the *where*.
+
+The most glaring MISSING direction is a dedicated **Developer Experience (DevEx) & Onboarding** track. This goes beyond a single install command. It includes a world-class README with GIFs, a 2-minute quickstart video, and a `CONTRIBUTING.md` that makes a first-time PR achievable in under an hour. You aren't shipping a binary; you are shipping a workflow. The current strategy risks users installing the tool and then asking, "Now what?"
+
+SELF-BIAS: As a Google-native voice, my feedback is shaped by an engineering culture that prioritizes measurable evidence (benchmarks, performance) over speculative user-base expansion. This may lead me to undervalue the network effects of multi-client support.

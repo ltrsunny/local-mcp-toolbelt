@@ -142,13 +142,13 @@ Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`; `r
 
 ## Outside-help cheat sheet
 
-- **Gemini** (taxonomy renamed 2026-05-18; decision file in
+- **Gemini family** (helpers.sh; full taxonomy in
   `.claude/brainstorm/gem-model-strategy-decision-2026-05-18.md`):
-  - `gem` — 3.5-flash via API key REST. Fast (~2 s), NO agentic.
-    Daily driver. Survives 6/18 OAuth cutoff.
-  - `gem-pro` — 2.5-pro via OAuth, full agentic, no fallback.
-    **Use for adversarial audit / synthesis.** Expires 6/18.
+  - `gem` — 3.5-flash REST direct, ~2 s, NO agentic.
+  - `gem-pro` — 2.5-pro OAuth, agentic. Expires 6/18.
   - `gem-pro-escalate` — 3.1-pro-preview → 2.5-pro. Sparingly.
+  - **`copilot-free`** ⭐ — Copilot agentic ReAct via Google API key
+    (gemini-3.5-flash). Fills agentic+free+post-6/18 gap, 0 Premium burn.
 - **GitHub Models** (`ghm`, helpers.sh, added 2026-05-18): multi-vendor
   proxy via PAT `GITHUB_MODELS_TOKEN`. Free quota 50/day high + 150/day
   low. **Catalog drifts** — `gpt-5`/o-series gated today, may GA later;
@@ -181,8 +181,8 @@ them in parallel and Claude synthesizes.
 | `nv_sum` / `nv_pro` (Nvidia NIM) | Offload single-shot reasoning to non-Claude / non-Gemini quota. |
 | Me (Claude) | Orchestrator + final synthesis + decisions. |
 
-**Anti-pattern**: serial fallback ("`gem` failed, switch to `nv_pro`, switch to bridge"). That's the failure mode of v0.3.0 release in this session.
-**Right pattern**: parallel fan-out → synthesize. Example for a release commit: `diff-semantic-index` + `gem "review the diff for risk"` + Claude composing the message — concurrent, ~one wall-clock step.
+**Anti-pattern**: serial fallback (`gem` failed → `nv_pro` → bridge).
+**Right pattern**: parallel fan-out → Claude synthesizes. ≥2 distinct *platforms* (not just families — see auditor-protocol #14).
 
 Quota emergency (Claude session > 85%): handoff via `/handoff-to-gemini` is the
 **fallback** path — but the portfolio above is the **default**.
