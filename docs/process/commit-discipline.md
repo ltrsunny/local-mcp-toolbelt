@@ -80,6 +80,18 @@ A quick scan of product-only history:
 git log --oneline | grep -Ev "^[a-f0-9]+ meta(\(|:)"
 ```
 
+Or install the project-local aliases once and use the short form:
+
+```bash
+npm run install-aliases   # writes alias.product-log and alias.meta-log
+git product-log -n 20     # product commits only
+git meta-log -n 20        # dev-meta commits only
+```
+
+The aliases are stored in `.git/config` (local, not user-global) so they
+don't leak into other projects. Re-running `install-aliases` is
+idempotent.
+
 ## Why this matters (in our specific context)
 
 This project's delivery target is "an effective, out-of-the-box,
@@ -95,6 +107,31 @@ Commits before this rule was approved (2026-05-12, ≤ commit 84eabad)
 are NOT rebased. Going forward only. Bisect across the pre-rule range
 will hit some mixed commits — acceptable cost of a one-shot
 forward-only policy switch.
+
+## Why we don't physically separate (logical > physical)
+
+2026-05-18 review: the v0.6.0 dev cycle landed ~74% `meta(*):` commits
+on main. PM (Auditor) asked whether main should be physically
+product-only (separate `dev-meta` branch + force-push rewrite). After
+a 2-round 3-voice adversarial brainstorm (see
+`.claude/brainstorm/commit-history-hygiene-decision-2026-05-18.md`),
+we decided **no**:
+
+- Force-push rewrites tag SHAs (e.g. `v0.6.0`), breaking
+  `npm install github:...#v0.6.0` style pins, CI provenance keyed on
+  SHA, and security audits referencing old hashes
+- `git-filter-repo --force` is irreversible; fork/PR rebases become
+  hostile
+- A CI gate that rejects `^meta:` on main would ossify the prefix
+  convention prematurely — this doc changed 3× in 2 weeks
+- The maintainer-audience filter is solved by the two git aliases
+  above; nothing in the user-audience (CHANGELOG-readers, npm
+  installers) is improved by physical separation
+
+**Re-evaluation triggers**: revisit physical separation if fork count
+> 10, or v1.0 nears with stricter tag immutability needs, or
+meta-commit volume stays > 80% on main for 3+ months with reader
+complaints.
 
 ## Historical note
 
