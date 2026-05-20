@@ -151,9 +151,9 @@ Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`; `r
   - `gem-pro-escalate` — 3.1-pro-preview → 2.5-pro. Sparingly.
 - **GitHub Models** (`ghm`, helpers.sh, added 2026-05-18): multi-vendor
   proxy via PAT `GITHUB_MODELS_TOKEN`. Free quota 50/day high + 150/day
-  low. Catalog: `openai/gpt-4o`, `gpt-4o-mini`, `deepseek/deepseek-r1`
-  (reasoning), `meta/llama-4-maverick-17b`, `mistral-ai/mistral-medium-
-  2505`, `microsoft/phi-4`. `gpt-5` / o-series Azure-preview blocked.
+  low. **Catalog drifts** — `gpt-5`/o-series gated today, may GA later;
+  models deprecate. **Fan-out: fresh-smoke via `catalog/models` +
+  inference ping each round**; no sticky `GHM_MODEL` env default.
 - **Copilot CLI** (`copilot -p ... --effort xhigh --yolo`): full agentic
   `@github/copilot`. `--yolo` REQUIRED in `-p` (plain `--allow-all-tools`
   silent-hangs on path/URL prompts). Student Pack = Copilot Pro,
