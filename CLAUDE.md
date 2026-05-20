@@ -142,14 +142,13 @@ Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`; `r
 
 ## Outside-help cheat sheet
 
-- **Gemini CLI** (`gem "..."` shell function): full ReAct agentic loop —
-  WriteFile, Shell, ReadFile, MCP servers, subagents, hooks. `--yolo`
-  auto-approves all actions; `-p` is headless/scriptable. Default model:
-  `gemini-3.1-pro-preview`; auto-falls back to `gemini-2.5-pro` →
-  `gemini-2.5-flash` on capacity errors. **For adversarial audit /
-  synthesis: always `gem --strict`** — skips fallback so silent flash
-  degradation can't pollute audit signal. Pro subscription, generous
-  quota.
+- **Gemini** (taxonomy renamed 2026-05-18; decision file in
+  `.claude/brainstorm/gem-model-strategy-decision-2026-05-18.md`):
+  - `gem` — 3.5-flash via API key REST. Fast (~2 s), NO agentic.
+    Daily driver. Survives 6/18 OAuth cutoff.
+  - `gem-pro` — 2.5-pro via OAuth, full agentic, no fallback.
+    **Use for adversarial audit / synthesis.** Expires 6/18.
+  - `gem-pro-escalate` — 3.1-pro-preview → 2.5-pro. Sparingly.
 - **Copilot CLI** (`copilot -p ... --effort xhigh --yolo`): standalone
   `@github/copilot` npm binary, full agentic. **`--yolo` is required in
   `-p` mode** — it covers all-tools + all-paths + all-urls. Plain
@@ -177,7 +176,8 @@ them in parallel and Claude synthesizes.
 | Tool | Niche |
 |---|---|
 | Bridge (`mcp__local-mcp__*`) | Structured `extract` / `classify` / `summarize` / `diff-semantic-index`. Small bounded calls. **Use first** — saves frontier without leaving local. |
-| `gem` (Gemini 2.5 Pro, agentic) | Adversarial review, multi-file refactors, divergent web research. |
+| `gem` (3.5-flash, fast) | Fan-out brainstorm voices, short summary / extract / classify. |
+| `gem-pro` (2.5-pro, agentic) | Adversarial review, multi-file refactors, web research. Until 6/18. |
 | `copilot` (GitHub-context) | Cross-repo lookups, issue / PR context, GitHub-MCP tasks. 50 premium / month. |
 | `nv_sum` / `nv_pro` (Nvidia NIM) | Offload single-shot reasoning to a non-Claude / non-Gemini quota. |
 | Me (Claude) | Orchestrator + final synthesis + decisions. |

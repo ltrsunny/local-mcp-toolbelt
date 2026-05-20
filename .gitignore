@@ -45,3 +45,6 @@ packages/core/tests/eval/runs/
 # Ephemeral working dir for diff captures, audit logs, etc. Anything
 # worth keeping gets moved into .claude/brainstorm/ before commit.
 tmp/
+
+# Runtime lock file for ScheduleWakeup / loop infrastructure — per-session.
+.claude/scheduled_tasks.lock
