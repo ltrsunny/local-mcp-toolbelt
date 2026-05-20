@@ -30,6 +30,7 @@
     "test:watch": "vitest",
     "clean": "rm -rf dist",
     "download-models": "node scripts/download-models.mjs",
+    "install-aliases": "node bin/install-aliases.mjs",
     "smoke:cross-client": "node scripts/cross-client-smoke.mjs",
     "prepublishOnly": "npm run build && npm test && node tests/check-version-sync.mjs"
   },
