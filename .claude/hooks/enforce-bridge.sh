@@ -76,6 +76,7 @@ ALLOWED_PREFIXES=(
   "$CLAUDE_PROJECT_DIR"
   "${HOME}/.claude"
   "${HOME}/.omlx"
+  "${HOME}/.config/claude-dev"
 )
 if [ -n "$EXTRA_ALLOWED_RAW" ]; then
   IFS=':' read -r -a _extras <<<"$EXTRA_ALLOWED_RAW"
