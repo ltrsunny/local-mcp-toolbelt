@@ -146,9 +146,10 @@ Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`; `r
   `.claude/brainstorm/gem-model-strategy-decision-2026-05-18.md`):
   - `gem` — 3.5-flash REST direct, ~2 s, NO agentic.
   - `gem-pro` — 2.5-pro OAuth, agentic. Expires 6/18.
-  - `gem-pro-escalate` — 3.1-pro-preview → 2.5-pro. Sparingly.
+  - `gem-pro-escalate` — 3.1→2.5 (3.1 capacity-exhausted today; use agy_pro).
   - **`copilot-free`** ⭐ — Copilot agentic ReAct via Google API key
     (gemini-3.5-flash). Fills agentic+free+post-6/18 gap, 0 Premium burn.
+  - **`agy_pro`** ⭐ — Antigravity CLI, sticky `/model`; separate quota pool, survives 6/18.
 - **GitHub Models** (`ghm`, helpers.sh, added 2026-05-18): multi-vendor
   proxy via PAT `GITHUB_MODELS_TOKEN`. Free quota 50/day high + 150/day
   low. **Catalog drifts** — `gpt-5`/o-series gated today, may GA later;

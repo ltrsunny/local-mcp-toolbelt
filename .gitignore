@@ -48,3 +48,8 @@ tmp/
 
 # Runtime lock file for ScheduleWakeup / loop infrastructure — per-session.
 .claude/scheduled_tasks.lock
+
+# Antigravity CLI per-project state (auto-created when running agy in cwd).
+# Contains a symlink to ~/.gemini/config/projects/<uuid>.json — workspace
+# scope is per-user, not for sharing.
+.antigravitycli/

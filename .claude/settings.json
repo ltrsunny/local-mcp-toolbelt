@@ -1,5 +1,29 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "PATH": "/Users/rd/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  },
+  "permissions": {
+    "allow": [
+      "mcp__local-mcp-toolbelt__extract",
+      "mcp__local-mcp-toolbelt__summarize",
+      "mcp__local-mcp-toolbelt__summarize-long",
+      "mcp__local-mcp-toolbelt__summarize-long-chunked",
+      "mcp__local-mcp-toolbelt__classify",
+      "mcp__local-mcp-toolbelt__transform",
+      "mcp__ollama-bridge__extract",
+      "mcp__ollama-bridge__summarize",
+      "mcp__ollama-bridge__summarize-long",
+      "mcp__ollama-bridge__summarize-long-chunked",
+      "mcp__ollama-bridge__classify",
+      "mcp__ollama-bridge__transform",
+      "mcp__ccd_session__mark_chapter",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "mcp__Claude_in_Chrome__navigate",
+      "Bash(npm view *)",
+      "Bash(brew info *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
