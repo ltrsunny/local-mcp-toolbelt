@@ -145,8 +145,8 @@ Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`; `r
 - **Gemini family** (helpers.sh; full taxonomy in
   `.claude/brainstorm/gem-model-strategy-decision-2026-05-18.md`):
   - `gem` — 3.5-flash REST direct, ~2 s, NO agentic.
-  - `gem-pro` — 2.5-pro OAuth, agentic. Expires 6/18.
-  - `gem-pro-escalate` — 3.1→2.5 (3.1 capacity-exhausted today; use agy_pro).
+  - `gem-pro` — 2.5-pro OAuth, agentic; expires 6/18 (override
+    `GEM_PRO_MODEL=gemini-3.1-pro-preview` fail-fast, but prefer `agy_pro`).
   - **`copilot-free`** ⭐ — Copilot agentic ReAct via Google API key
     (gemini-3.5-flash). Fills agentic+free+post-6/18 gap, 0 Premium burn.
   - **`agy_pro`** ⭐ — Antigravity CLI, sticky `/model`; separate quota pool, survives 6/18.
