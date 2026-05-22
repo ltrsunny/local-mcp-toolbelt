@@ -150,11 +150,19 @@ Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`; `r
   - **`copilot-free`** ⭐ — Copilot agentic ReAct via Google API key
     (gemini-3.5-flash). Fills agentic+free+post-6/18 gap, 0 Premium burn.
   - **`agy_pro`** ⭐ — Antigravity CLI, sticky `/model`; separate quota pool, survives 6/18.
-- **GitHub Models** (`ghm`, helpers.sh, added 2026-05-18): multi-vendor
-  proxy via PAT `GITHUB_MODELS_TOKEN`. Free quota 50/day high + 150/day
-  low. **Catalog drifts** — `gpt-5`/o-series gated today, may GA later;
-  models deprecate. **Fan-out: fresh-smoke via `catalog/models` +
-  inference ping each round**; no sticky `GHM_MODEL` env default.
+- **GitHub Models** (`ghm`, `ghm_pro`; helpers.sh): multi-vendor proxy
+  via PAT `GITHUB_MODELS_TOKEN`. Free quota 50/day high + 150/day low.
+  **Dynamic model selection encapsulated in `_ghm_pick_model` (helpers.sh,
+  2026-05-22 iron rule, mirrors NIM)**: fresh `/catalog/models` +
+  context-aware filter + 5-tok ping on EVERY call, no env override
+  possible. Tier inferred from function: `ghm`=low (15/min·150/day),
+  `ghm_pro`=high (10/min·50/day, requires tool-calling capability).
+  `custom` tier (gpt-5/o-series/deepseek-r1 reasoning models) handled
+  separately if/when `ghm_reason` added. **Catalog drifts** — gpt-5
+  family + o1/o3/o4 series sit in custom tier; models deprecate over
+  time. Picker estimates context need from prompt+stdin byte length
+  /4; if GHM proxy returns "Too many requests" plain-text body the
+  call surfaces it explicitly instead of generic parse error.
 - **Copilot CLI** (`copilot -p ... --effort xhigh --yolo`): full agentic
   `@github/copilot`. `--yolo` REQUIRED in `-p` (plain `--allow-all-tools`
   silent-hangs on path/URL prompts). Student Pack = Copilot Pro,

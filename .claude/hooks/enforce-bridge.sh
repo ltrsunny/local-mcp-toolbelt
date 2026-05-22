@@ -113,6 +113,13 @@ if [ -f "$BRIDGE_EDIT_MARKER" ] && [ "${#ANALYSIS_PREFIXES[@]}" -gt 0 ]; then
   _age=$((_now - _mtime))
   if [ "$_age" -le "$MARKER_EXPIRE_SEC" ]; then
     ANALYSIS_PREFIXES=()
+    # Refresh mtime on active bypass — continuous editing keeps the marker
+    # alive without re-touch, while idle markers still auto-disarm on
+    # schedule (no activity → no refresh → ages out). EOD review caught
+    # this as a UX cliff: a 70-min edit session would silently re-block
+    # mid-flow under the original "static-mtime" design. (Claude voice,
+    # 2026-05-22 EOD review Q1 — verified solid by 2-of-3 voices.)
+    touch "$BRIDGE_EDIT_MARKER" 2>/dev/null || true
   fi
 fi
 

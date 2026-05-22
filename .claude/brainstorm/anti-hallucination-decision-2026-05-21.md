@@ -166,6 +166,23 @@ After each fan-out, before reasoning from cited URLs, the synthesizer
 flag any non-2xx. False positive risk: timeout/blocked but URL real.
 Mitigate by retrying with GET on 1-2 alternative DNS-resolving paths.
 
+**Escalation on 403** (added 2026-05-22 EOD review Q5): bare curl
+fails on Cloudflare-protected hosts (openai.com, twitter/x, certain
+academic publishers) — treating 403 as fabrication = false-positive
+on many legitimate cited hosts. Escalation ladder:
+- 200 → trust URL exists (claim still needs content verification)
+- 404 → flag as likely fabrication
+- 403 → escalate to Claude built-in `WebFetch` (passes Cloudflare JS
+  challenges by default); if WebFetch also fails, try Playwright via
+  `Claude_Preview` MCP for full browser fingerprint
+- After both: surface as "human-disambiguate" — NEVER auto-reject
+- Timeout → retry once with GET; then flag as "unverifiable"
+
+Prior art (verified 2026-05-22 via WebSearch of Evomi/ZenRows/
+BrightData 2026 blog posts on Cloudflare bypass): legacy cfscrape
+and puppeteer-stealth are ineffective; real browsers with realistic
+TLS fingerprints are the only reliable path on bot-protected sites.
+
 **Leverage**: catches the `antigravity.ai/docs/v1/...` style
 fabrication directly. Today's session would have caught
 deepseek-r1's fake URL via this check.
@@ -208,7 +225,11 @@ Cite: arxiv:2308.07201 (multi-agent debate "woozle effect").
 
 ## Anti-pattern updates suggested
 
-Add to auditor-protocol.md (3 new entries, post user approval):
+Add to auditor-protocol.md (2 new entries + 1 amendment to #17,
+post user approval; revised from "3 new" after 2026-05-22 EOD
+meta-review caught that #3 was structurally #17 self-applied
+rather than a distinct pattern — verdict converged across Claude
+WebSearch voice and 2-of-2 meta-review voices):
 
 > **❌ Trusting cited URLs at synthesizer boundary without HTTP
 > verification.** Voice citations are sometimes fabricated even
@@ -230,14 +251,14 @@ Add to auditor-protocol.md (3 new entries, post user approval):
 > Family-bias disclosure must come from CALLER knowledge (helpers.sh
 > documents this), not from the voice itself.
 
-> **❌ Reflexive voice-tally trimming (#17 self-application).**
-> When a fan-out concludes, document EVERY voice considered
-> (including pre-call rejects) with explicit exclusion rationale.
-> Silent exclusion ("gem doesn't fit because non-agentic") without
-> surfacing the reasoning in the decision file IS reflexive omission
-> — same failure mode as #17 applied to one's own synthesis pass.
-> Verified 2026-05-22 when PM caught gem silently dropped from
-> voice tally.
+**Amend existing #17** (not a separate entry):
+> Append clause: "Self-application included — when YOU prune voices
+> from YOUR OWN synthesis without explicit exclusion rationale,
+> this is #17 turned inward. Document every voice considered
+> (including pre-call rejects) with reasoning. Verified 2026-05-22
+> when PM caught gem silently dropped from voice tally —
+> reflexive-omission failure mode applied to synthesizer's own
+> work product, not just external voices."
 
 ## What's NOT done (deferred)
 
