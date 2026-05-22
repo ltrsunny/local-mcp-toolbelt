@@ -36,10 +36,13 @@ packages/core/tests/eval/runs/
 .claude/brainstorm/eval-result.md
 .claude/brainstorm/pa-mcp-result.md
 
-# Per-session marker file for hook bypass during scope-memo editing
-# (the hook checks for this file's existence and exempts
-# docs/scope-memos from analysis-path gating while it's present).
+# Per-session marker file for hook bypass during editing of any
+# analysis path (brainstorm, scope-memos, notes, diagnostics,
+# prior-art). The hook checks for this file's existence + mtime <60min
+# and lifts analysis-path gating while present. Auto-expires.
 # Per-machine state — don't ever commit it.
+# Renamed 2026-05-22 from .scope-memo-edit-mode (broader scope now).
+.claude/.bridge-edit-mode
 .claude/.scope-memo-edit-mode
 
 # Ephemeral working dir for diff captures, audit logs, etc. Anything

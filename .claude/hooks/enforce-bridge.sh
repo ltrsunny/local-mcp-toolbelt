@@ -28,14 +28,19 @@
 #      Default paths: .claude/brainstorm .claude/diagnostics
 #                     docs/notes docs/scope-memos docs/prior-art
 #      Threshold: OMCP_HOOK_ANALYSIS_THRESHOLD_BYTES (default 4096).
-#      Scope-memo Edit-mode override: when
-#      `$CLAUDE_PROJECT_DIR/.claude/.scope-memo-edit-mode` exists,
-#      the docs/scope-memos prefix is removed from analysis paths for
-#      the duration of the marker's lifetime. Touch the marker to
-#      enter edit mode; rm to exit. Don't leave it on between
-#      sessions. The marker mechanism exists because Edit's
-#      `old_string` prerequisite needs byte-perfect context that
-#      bridge `extract` can't always deliver from a 4B model.
+#      Bridge-edit-mode override: when
+#      `$CLAUDE_PROJECT_DIR/.claude/.bridge-edit-mode` exists AND its
+#      mtime is within OMCP_HOOK_MARKER_EXPIRE_SEC (default 3600s = 60min),
+#      ALL analysis prefixes are lifted for the duration of the marker.
+#      Touch the marker to enter edit mode; rm to exit; or just wait
+#      for auto-expiry. Renamed 2026-05-22 from `.scope-memo-edit-mode`
+#      (which only stripped docs/scope-memos) after adversarial review
+#      caught the partial coverage as a recurring frustration source —
+#      editing brainstorm/notes/diagnostics post-compaction was blocked
+#      with no in-band remediation path.
+#      The marker mechanism exists because Edit's `old_string`
+#      prerequisite needs byte-perfect context that bridge `extract`
+#      can't always deliver from a 4B model.
 #
 #   3. Project-internal data files by extension
 #      Default extensions: log diff jsonl ips ndjson csv
@@ -92,21 +97,23 @@ for rel in "${_ap[@]}"; do
   [ -n "$rel" ] && ANALYSIS_PREFIXES+=("${CLAUDE_PROJECT_DIR}/${rel}")
 done
 
-# Marker-file override: when `.claude/.scope-memo-edit-mode` exists,
-# strip `docs/scope-memos` from the analysis-path set for the duration
-# of the marker. Lets a user enter Edit-prerequisite mode for scope
-# memos without restarting Claude Code (env vars are inherited from
-# launch, not from in-session shells). Touch to enter; rm to exit.
-SCOPE_MEMO_MARKER="${CLAUDE_PROJECT_DIR}/.claude/.scope-memo-edit-mode"
-if [ -f "$SCOPE_MEMO_MARKER" ] && [ "${#ANALYSIS_PREFIXES[@]}" -gt 0 ]; then
-  _filtered=()
-  for prefix in "${ANALYSIS_PREFIXES[@]}"; do
-    case "$prefix" in
-      "${CLAUDE_PROJECT_DIR}/docs/scope-memos") ;;
-      *) _filtered+=("$prefix") ;;
-    esac
-  done
-  ANALYSIS_PREFIXES=("${_filtered[@]}")
+# Marker-file override: when `.claude/.bridge-edit-mode` exists AND
+# its mtime is within OMCP_HOOK_MARKER_EXPIRE_SEC (default 3600s),
+# ALL analysis prefixes are stripped for the duration of the marker.
+# Lets a user enter Edit-prerequisite mode for any analysis path
+# (brainstorm, notes, scope-memos, diagnostics, prior-art) without
+# restarting Claude Code. Touch to enter; rm to exit; or wait for
+# auto-expiry. Stale markers (forgotten across sessions) self-disarm
+# after the expiry window. See top-of-file comment for renaming history.
+BRIDGE_EDIT_MARKER="${CLAUDE_PROJECT_DIR}/.claude/.bridge-edit-mode"
+MARKER_EXPIRE_SEC="${OMCP_HOOK_MARKER_EXPIRE_SEC:-3600}"
+if [ -f "$BRIDGE_EDIT_MARKER" ] && [ "${#ANALYSIS_PREFIXES[@]}" -gt 0 ]; then
+  _mtime="$(stat -f%m "$BRIDGE_EDIT_MARKER" 2>/dev/null || stat -c%Y "$BRIDGE_EDIT_MARKER" 2>/dev/null || echo 0)"
+  _now="$(date +%s)"
+  _age=$((_now - _mtime))
+  if [ "$_age" -le "$MARKER_EXPIRE_SEC" ]; then
+    ANALYSIS_PREFIXES=()
+  fi
 fi
 
 DATA_EXT_RE=""
@@ -222,20 +229,15 @@ Source code, configs, and small notes inside the project stay
 allow-listed — only analysis-path / data-file content is enforced
 here. Override per-project via OMCP_HOOK_ANALYSIS_PATHS and
 OMCP_HOOK_DATA_EXTENSIONS if these defaults don't fit.
-EOF
-  case "$p" in
-    "${CLAUDE_PROJECT_DIR}/docs/scope-memos/"*)
-      cat >&2 <<EOF
 
-For Edit-prerequisite reads on scope memos specifically (when bridge
-extract's verbatim schema is too brittle for old_string matching):
-  touch ${CLAUDE_PROJECT_DIR}/.claude/.scope-memo-edit-mode
-to bypass this gate for scope-memos only during an active editing
-session. \`rm\` the marker when done — don't leave it on across
-sessions. (The marker is git-ignored.)
+For Edit-prerequisite reads (when bridge extract's schema is too
+brittle for old_string matching), lift this gate for ALL analysis
+paths during an active editing session:
+  touch ${CLAUDE_PROJECT_DIR}/.claude/.bridge-edit-mode
+Auto-expires after ${MARKER_EXPIRE_SEC}s (override via
+OMCP_HOOK_MARKER_EXPIRE_SEC). \`rm\` the marker when done — but a
+forgotten marker self-disarms on schedule. (Git-ignored.)
 EOF
-      ;;
-  esac
 }
 
 # Check a fully-resolved path. Exit 2 if blocked.

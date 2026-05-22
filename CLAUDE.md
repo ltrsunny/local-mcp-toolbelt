@@ -120,7 +120,7 @@ Three enforcement bands:
   Route via `source_uri`.
 - **Project-internal analysis paths > 4 KB** — `.claude/brainstorm`,
   `.claude/diagnostics`, `docs/notes`, `docs/scope-memos`, `docs/prior-art`.
-  Edit-mode marker for scope memos: `touch .claude/.scope-memo-edit-mode` (rm to exit; git-ignored).
+  Edit-mode marker (all analysis paths): `touch .claude/.bridge-edit-mode` — auto-expires 60min (override via `OMCP_HOOK_MARKER_EXPIRE_SEC`); rm to exit; git-ignored. Renamed 2026-05-22 from `.scope-memo-edit-mode` after Bug B adversarial review.
 - **Project-internal data files > 4 KB** by extension — `*.log`, `*.diff`,
   `*.jsonl`, `*.ips`, `*.ndjson`, `*.csv`.
 
@@ -160,9 +160,16 @@ Token-saving tactics still: `tsc | head -n 50`; `grep` + `Read offset/limit`; `r
   silent-hangs on path/URL prompts). Student Pack = Copilot Pro,
   300 premium/month. Best for: cross-repo GitHub-MCP context.
 - **Nvidia NIM** (`nv_sum`, `nv_pro`): free OpenAI-compat gateway, ~120
-  catalog models but **~70% 404 today** (unstable). Every fan-out fresh-
-  smoke via `/v1/models` + 5-tok ping. No sticky `NV_PRO_MODEL` env.
-  Subject=Qwen → exclude `qwen3.5-397b` (self-family bias).
+  catalog models but **~40-70% 404 daily** (unstable). **Dynamic model
+  selection encapsulated in `_nim_pick_model` (helpers.sh, 2026-05-22
+  iron rule)**: fresh `/v1/models` + 5-tok ping on EVERY call, no env
+  override possible. Tier inferred from function: `nv_sum`=≤15B,
+  `nv_pro`=≥50B, random shuffle within tier. **Anti-pattern**:
+  hardcoded model id (e.g. old `NV_PRO_MODEL=qwen3.5-397b`) — pinned
+  defaults rot silently when the API 404s, and the silent fallback to
+  training-data answers IS the hallucination this rule prevents.
+  Picker is family-agnostic; for Subject=Qwen workflows re-roll until
+  non-qwen picked, or filter at call site.
 - **The bridge itself** for everything that fits — see "Bridge-usage
   discipline" above.
 
