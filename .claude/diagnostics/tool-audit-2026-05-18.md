@@ -1,5 +1,21 @@
 # Tool 5-axis audit — 2026-05-18
 
+> **🔄 PARTIAL RE-AUDIT 2026-05-22**: Findings in §"Verified bypass
+> paths" table (lines 60-69) and §"Net actionable findings" row 3
+> (line 157) are **STALE**. Empirical retests on 2026-05-22 found:
+> - **NIM** "tool-call parser not enabled" → FALSE. 4/5 tested NIM
+>   models (meta/llama-3.3-70b, mistralai/mistral-large-3-675b, etc.)
+>   return tool_calls via OAI shim. Issue was vLLM config gap at the
+>   time of audit — server side now correctly configured.
+> - **GitHub Models** "8K input cap" → FALSE. Catalog 2026-05-22:
+>   39/43 models have ≥128K context (gpt-4o-mini, gpt-4.1, llama-3.3-
+>   70b etc. all 128K+). Old 8K cap was either pre-Dec-2025 quota
+>   policy or specific to certain models (deepseek-r1 still has 4K).
+> See `.claude/brainstorm/cross-provider-byok-picker-brief-2026-05-22.md`
+> for the empirical evidence and proposed cross-provider picker design.
+> Full Copilot BYOK end-to-end test against NIM/GHM still pending as
+> of 2026-05-22.
+
 Trigger: PM challenge "你每次的 bundle 都没有直接获取而是靠猜测".
 Coverage: gemini-cli, copilot, ghm (GitHub Models), nv_pro (NIM
 gateway), bridge MCP. Each inspected on 5 axes per
