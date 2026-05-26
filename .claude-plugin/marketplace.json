@@ -1,0 +1,14 @@
+{
+  "name": "local-mcp-toolbelt-marketplace",
+  "owner": {
+    "name": "RRdD"
+  },
+  "plugins": [
+    {
+      "name": "local-mcp-toolbelt",
+      "source": "./",
+      "version": "0.6.0",
+      "description": "Delegate lightweight LLM tasks (summarize / extract / classify / transform / diff-semantic-index) to a local oMLX inference server. Saves frontier tokens, runs offline. Ships bridge-enforcement hook."
+    }
+  ]
+}
