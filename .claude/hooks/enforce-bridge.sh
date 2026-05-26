@@ -81,7 +81,7 @@ ALLOWED_PREFIXES=(
   "$CLAUDE_PROJECT_DIR"
   "${HOME}/.claude"
   "${HOME}/.omlx"
-  "${HOME}/.config/claude-dev"
+  "${HOME}/.config/llm-orchestration"
   "${HOME}/.local/bin"
 )
 if [ -n "$EXTRA_ALLOWED_RAW" ]; then

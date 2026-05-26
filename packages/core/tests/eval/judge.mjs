@@ -9,7 +9,7 @@
  * bias (research note: scope-memo gem 2026-05-05).
  *
  * Usage:
- *   source ~/.config/claude-dev/secrets.env
+ *   source ~/.config/llm-orchestration/secrets.env
  *   node tests/eval/judge.mjs --run runs/<id>.jsonl
  *
  * Idempotent: rows already containing a numeric `score` are skipped unless
@@ -106,7 +106,7 @@ async function main() {
   const apiKey = process.env.NVIDIA_API_KEY;
   if (!apiKey) {
     console.error('NVIDIA_API_KEY env var is required');
-    console.error('Run: source ~/.config/claude-dev/secrets.env');
+    console.error('Run: source ~/.config/llm-orchestration/secrets.env');
     process.exit(2);
   }
   const args = parseArgs(process.argv);

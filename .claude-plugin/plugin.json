@@ -1,0 +1,10 @@
+{
+  "name": "local-mcp-toolbelt",
+  "description": "Delegate lightweight LLM tasks (summarize / extract / classify / transform / diff-semantic-index) to a local oMLX inference server. Saves frontier tokens, runs offline, no data leaves the machine. Ships with the bridge-enforcement hook that nudges agents toward bridge calls for files larger than 1 KB / 4 KB thresholds.",
+  "version": "0.6.0",
+  "author": {
+    "name": "RRdD"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/RRdD/local-mcp-toolbelt"
+}
