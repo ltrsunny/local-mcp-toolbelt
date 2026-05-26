@@ -20,8 +20,13 @@
       "mcp__ccd_session__mark_chapter",
       "mcp__Claude_in_Chrome__tabs_context_mcp",
       "mcp__Claude_in_Chrome__navigate",
+      "mcp__Claude_in_Chrome__list_connected_browsers",
+      "mcp__Claude_in_Chrome__get_page_text",
+      "mcp__Claude_in_Chrome__read_page",
       "Bash(npm view *)",
-      "Bash(brew info *)"
+      "Bash(brew info *)",
+      "Bash(npm test *)",
+      "Bash(npm run build)"
     ]
   },
   "hooks": {
